@@ -1,6 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mobile Chat App</title>
+<style>
+  body { font-family: Arial; padding: 20px; }
+  #messages { list-style: none; padding: 0; max-height: 300px; overflow-y: auto; }
+  li { padding: 5px 10px; border-bottom: 1px solid #ddd; }
+  #form { display: flex; margin-top: 10px; }
+  #input { flex: 1; padding: 5px; }
+</style>
+</head>
+<body>
+
+<h2>Mobile Chat App</h2>
+<ul id="messages"></ul>
+<form id="form">
+  <input id="input" autocomplete="off" placeholder="Type a message..." /><button>Send</button>
+</form>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+
+  const form = document.getElementById('form');
+  const input = document.getElementById('input');
+  const messages = document.getElementById('messages');
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (input.value) {
+      socket.emit('chat message', input.value);
+      input.value = '';
+    }
+  });
+
+  socket.on('chat message', (msg) => {
+    const li = document.createElement('li');
+    li.textContent = msg;
+    messages.appendChild(li);
+    messages.scrollTop = messages.scrollHeight;
+  });
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Chat App</title>
