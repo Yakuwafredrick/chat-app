@@ -1,15 +1,20 @@
-// ===== app.js =====
+// ================================
+// YakuwaZ Chat App - app.js
+// ================================
 
-// Ask user for a username
+// -----------------
+// USERNAME
+// -----------------
 let username = localStorage.getItem("username");
 if (!username) {
   username = prompt("Enter your username") || "Anonymous";
   localStorage.setItem("username", username);
 }
 
+// -----------------
+// INDEXED DB SETUP
+// -----------------
 let db;
-
-// Open IndexedDB
 const request = indexedDB.open("yakuwaz-chat", 1);
 
 request.onupgradeneeded = (e) => {
@@ -30,10 +35,14 @@ request.onerror = (e) => {
   console.error("IndexedDB error:", e.target.error);
 };
 
-// ---- Socket.IO setup ----
+// -----------------
+// SOCKET.IO
+// -----------------
 const socket = io();
 
-// DOM elements
+// -----------------
+// DOM ELEMENTS
+// -----------------
 const form = document.getElementById("form");
 const input = document.getElementById("input");
 const messages = document.getElementById("messages");
@@ -53,30 +62,43 @@ messages.prepend(onlineCount);
 // -----------------
 form.addEventListener("submit", (e) => {
   e.preventDefault();
-  const msg = input.value.trim();
-  if (!msg) return;
+
+  const text = input.value.trim();
+  if (!text) return;
 
   const messageData = {
-    text: msg,
+    text,
     username,
     sender: socket.id,
-    timestamp: Date.now(),
+    timestamp: Date.now()
   };
 
-  if (socket.connected) socket.emit("chat message", messageData);
-
-  addMessage(messageData); // Show immediately
-  saveMessageOffline(messageData);
+  if (socket.connected) {
+    // Send to server ONLY
+    socket.emit("chat message", messageData);
+  } else {
+    // Offline fallback
+    addMessage({ ...messageData, self: true });
+    saveMessageOffline(messageData);
+  }
 
   input.value = "";
 });
 
 // -----------------
-// INCOMING MESSAGES
+// RECEIVE MESSAGES
 // -----------------
 socket.on("chat message", (data) => {
-  const isSelf = data.sender === socket.id;
-  addMessage(data); // DOM alignment handled inside addMessage
+  // Prevent duplicates
+  if (
+    messages.querySelector(
+      `.message[data-timestamp='${data.timestamp}']`
+    )
+  ) {
+    return;
+  }
+
+  addMessage(data);
   saveMessageOffline(data);
 });
 
@@ -84,7 +106,8 @@ socket.on("chat message", (data) => {
 // TYPING INDICATOR
 // -----------------
 socket.on("typing", (name) => {
-  typingIndicator.textContent = name && name !== username ? `${name} is typing...` : "";
+  typingIndicator.textContent =
+    name && name !== username ? `${name} is typing...` : "";
 });
 
 input.addEventListener("input", () => {
@@ -105,27 +128,32 @@ function addMessage(data) {
   const isSelf = data.sender === socket.id || data.self === true;
 
   const div = document.createElement("div");
-  div.className = "message" + (isSelf ? " self" : "");
+  div.classList.add("message");
+  if (isSelf) div.classList.add("self");
+
   div.dataset.timestamp = data.timestamp;
 
-div.innerHTML = `
-  <div class="message-header">
-    <span class="username">${data.username}</span>
-    <button class="delete-btn">🗑️</button>
-  </div>
-  <div class="text">${data.text}</div>
-`;
+  div.innerHTML = `
+    <div class="message-header">
+      <span class="username">${data.username}</span>
+      <button class="delete-btn">🗑️</button>
+    </div>
+    <div class="text">${data.text}</div>
+  `;
+
   // Delete button
   const deleteBtn = div.querySelector(".delete-btn");
   deleteBtn.addEventListener("click", () => {
-    const choice = confirm("Delete for everyone? Cancel = delete for me only.");
-    if (choice) {
+    const confirmDelete = confirm(
+      "Delete for everyone?\nCancel = delete for me only."
+    );
+
+    if (confirmDelete) {
       socket.emit("delete message", data.timestamp);
-      removeMessageFromDOM(data.timestamp);
-      deleteMessageFromDB(data.timestamp);
-    } else {
-      removeMessageFromDOM(data.timestamp);
     }
+
+    removeMessageFromDOM(data.timestamp);
+    deleteMessageFromDB(data.timestamp);
   });
 
   messages.appendChild(div);
@@ -136,12 +164,14 @@ div.innerHTML = `
 // REMOVE MESSAGE FROM DOM
 // -----------------
 function removeMessageFromDOM(timestamp) {
-  const msgDiv = messages.querySelector(`.message[data-timestamp='${timestamp}']`);
-  if (msgDiv) msgDiv.remove();
+  const el = messages.querySelector(
+    `.message[data-timestamp='${timestamp}']`
+  );
+  if (el) el.remove();
 }
 
 // -----------------
-// SOCKET.IO DELETE EVENT
+// DELETE MESSAGE EVENT
 // -----------------
 socket.on("delete message", (timestamp) => {
   removeMessageFromDOM(timestamp);
@@ -149,27 +179,28 @@ socket.on("delete message", (timestamp) => {
 });
 
 // -----------------
-// INDEXEDDB FUNCTIONS
+// INDEXED DB FUNCTIONS
 // -----------------
 function saveMessageOffline(msg) {
   if (!db) return;
+
   const tx = db.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
 
-  const messageToSave = {
+  store.put({
     ...msg,
     self: msg.sender === socket.id
-  };
-  store.put(messageToSave);
+  });
 }
 
 function loadMessagesFromDB() {
   if (!db) return;
+
   const tx = db.transaction("messages", "readonly");
   const store = tx.objectStore("messages");
 
-  store.openCursor().onsuccess = (event) => {
-    const cursor = event.target.result;
+  store.openCursor().onsuccess = (e) => {
+    const cursor = e.target.result;
     if (cursor) {
       addMessage(cursor.value);
       cursor.continue();
@@ -179,11 +210,12 @@ function loadMessagesFromDB() {
 
 function deleteMessageFromDB(timestamp) {
   if (!db) return;
+
   const tx = db.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
 
-  store.openCursor().onsuccess = (event) => {
-    const cursor = event.target.result;
+  store.openCursor().onsuccess = (e) => {
+    const cursor = e.target.result;
     if (cursor) {
       if (cursor.value.timestamp === timestamp) {
         store.delete(cursor.key);
@@ -194,7 +226,7 @@ function deleteMessageFromDB(timestamp) {
 }
 
 // -----------------
-// QUEUED MESSAGES (offline → online)
+// OFFLINE → ONLINE SYNC
 // -----------------
 function sendQueuedMessages() {
   if (!db || !socket.connected) return;
@@ -202,15 +234,16 @@ function sendQueuedMessages() {
   const tx = db.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
 
-  store.openCursor().onsuccess = (event) => {
-    const cursor = event.target.result;
+  store.openCursor().onsuccess = (e) => {
+    const cursor = e.target.result;
     if (cursor) {
-      if (cursor.value.sender === socket.id) {
-        socket.emit("chat message", cursor.value);
+      const msg = cursor.value;
+      if (msg.sender === socket.id) {
+        socket.emit("chat message", msg);
       }
       cursor.continue();
     }
   };
 }
 
-socket.on("connect", () => sendQueuedMessages());
+socket.on("connect", sendQueuedMessages);
