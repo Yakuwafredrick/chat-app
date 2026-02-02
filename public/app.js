@@ -46,18 +46,17 @@ const socket = io();
 const form = document.getElementById("form");
 const input = document.getElementById("input");
 const messages = document.getElementById("messages");
-// Track typing users
-const typingUsers = new Map();
-
-// Typing indicator
-//const typingIndicator = document.createElement("div");
-//typingIndicator.className = "typing-indicator";
-//messages.appendChild(typingIndicator);
 
 // Online users count
 const onlineCount = document.createElement("div");
 onlineCount.className = "online-count";
 messages.prepend(onlineCount);
+
+// -----------------
+// TYPING STATE
+// -----------------
+const typingUsers = new Map();
+let typingTimeout;
 
 // -----------------
 // FORM SUBMIT
@@ -75,11 +74,12 @@ form.addEventListener("submit", (e) => {
     timestamp: Date.now()
   };
 
+  // Stop typing when message is sent
+  socket.emit("typing", false);
+
   if (socket.connected) {
-    // Send to server ONLY
     socket.emit("chat message", messageData);
   } else {
-    // Offline fallback
     addMessage({ ...messageData, self: true });
     saveMessageOffline(messageData);
   }
@@ -91,33 +91,43 @@ form.addEventListener("submit", (e) => {
 // RECEIVE MESSAGES
 // -----------------
 socket.on("chat message", (data) => {
+  // Remove typing indicator for sender
+  removeTypingIndicator(data.sender);
+
   // Prevent duplicates
   if (
     messages.querySelector(
       `.message[data-timestamp='${data.timestamp}']`
     )
-  ) {
-    return;
-  }
+  ) return;
 
   addMessage(data);
   saveMessageOffline(data);
 });
 
 // -----------------
-// TYPING INDICATOR
+// TYPING EMIT (WhatsApp-style)
 // -----------------
-socket.on("typing", (data) => {
-  if (!data || !data.username || data.username === username) {
-    typingIndicator.textContent = "";
-    return;
-  }
+input.addEventListener("input", () => {
+  socket.emit("typing", true);
 
-  typingIndicator.textContent = `${data.username} is typing...`;
+  clearTimeout(typingTimeout);
+  typingTimeout = setTimeout(() => {
+    socket.emit("typing", false);
+  }, 1500);
 });
 
-input.addEventListener("input", () => {
-  socket.emit("typing", username);
+// -----------------
+// TYPING RECEIVE
+// -----------------
+socket.on("typing", (data) => {
+  if (!data || !data.username || data.username === username) return;
+
+  if (data.status) {
+    showTypingIndicator(data.id, data.username);
+  } else {
+    removeTypingIndicator(data.id);
+  }
 });
 
 // -----------------
@@ -147,7 +157,6 @@ function addMessage(data) {
     <div class="text">${data.text}</div>
   `;
 
-  // Delete button
   const deleteBtn = div.querySelector(".delete-btn");
   deleteBtn.addEventListener("click", () => {
     const confirmDelete = confirm(
@@ -163,7 +172,32 @@ function addMessage(data) {
   });
 
   messages.appendChild(div);
-  messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
+  messages.scrollTop = messages.scrollHeight;
+}
+
+// -----------------
+// TYPING INDICATOR HELPERS
+// -----------------
+function showTypingIndicator(userId, name) {
+  if (typingUsers.has(userId)) return;
+
+  const div = document.createElement("div");
+  div.className = "message typing";
+  div.dataset.typing = userId;
+
+  div.innerHTML = `<div class="text">${name} is typing…</div>`;
+
+  typingUsers.set(userId, div);
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function removeTypingIndicator(userId) {
+  const el = typingUsers.get(userId);
+  if (el) {
+    el.remove();
+    typingUsers.delete(userId);
+  }
 }
 
 // -----------------
@@ -222,12 +256,10 @@ function deleteMessageFromDB(timestamp) {
 
   store.openCursor().onsuccess = (e) => {
     const cursor = e.target.result;
-    if (cursor) {
-      if (cursor.value.timestamp === timestamp) {
-        store.delete(cursor.key);
-      }
-      cursor.continue();
+    if (cursor.value.timestamp === timestamp) {
+      store.delete(cursor.key);
     }
+    cursor.continue();
   };
 }
 
@@ -243,9 +275,8 @@ function sendQueuedMessages() {
   store.openCursor().onsuccess = (e) => {
     const cursor = e.target.result;
     if (cursor) {
-      const msg = cursor.value;
-      if (msg.sender === socket.id) {
-        socket.emit("chat message", msg);
+      if (cursor.value.sender === socket.id) {
+        socket.emit("chat message", cursor.value);
       }
       cursor.continue();
     }
