@@ -79,13 +79,14 @@ body {
   font-size: 0.9rem;
   line-height: 1.45;
   word-wrap: break-word;
-  align-self: flex-start; /* default = left */
+  align-self: flex-start; /* receiver = left */
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 4px;
   animation: fadeIn 0.2s ease;
 }
 
-/* Sent messages (right) */
+/* Sender (right side) */
 .message.self {
   align-self: flex-end;
   background: #2563eb;
@@ -96,6 +97,16 @@ body {
 .message .username {
   font-weight: 600;
   margin-right: 6px;
+}
+
+.message-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.message.self .message-header {
+  flex-direction: row-reverse;
 }
 
 /* Delete button */
