@@ -105,9 +105,13 @@ socket.on("chat message", (data) => {
 // -----------------
 // TYPING INDICATOR
 // -----------------
-socket.on("typing", (name) => {
-  typingIndicator.textContent =
-    name && name !== username ? `${name} is typing...` : "";
+socket.on("typing", (data) => {
+  if (!data || !data.username || data.username === username) {
+    typingIndicator.textContent = "";
+    return;
+  }
+
+  typingIndicator.textContent = `${data.username} is typing...`;
 });
 
 input.addEventListener("input", () => {
