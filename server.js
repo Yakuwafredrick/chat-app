@@ -54,9 +54,11 @@ io.on("connection", (socket) => {
 
   // Typing indicator
   socket.on("typing", (status) => {
-    socket.broadcast.emit("typing", { username: onlineUsers.get(socket.id), status });
-  });
-
+    socket.broadcast.emit("typing", {
+  id: socket.id,
+  username: onlineUsers.get(socket.id),
+  status
+});
   // Delete message
   socket.on("delete message", ({ id, type }) => {
     if (type === "me") {
