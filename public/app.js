@@ -46,11 +46,13 @@ const socket = io();
 const form = document.getElementById("form");
 const input = document.getElementById("input");
 const messages = document.getElementById("messages");
+// Track typing users
+const typingUsers = new Map();
 
 // Typing indicator
-const typingIndicator = document.createElement("div");
-typingIndicator.className = "typing-indicator";
-messages.appendChild(typingIndicator);
+//const typingIndicator = document.createElement("div");
+//typingIndicator.className = "typing-indicator";
+//messages.appendChild(typingIndicator);
 
 // Online users count
 const onlineCount = document.createElement("div");
