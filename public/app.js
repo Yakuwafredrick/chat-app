@@ -61,12 +61,11 @@ form.addEventListener("submit", (e) => {
     username,
     sender: socket.id,
     timestamp: Date.now(),
-    self: true // mark as own message
   };
 
   if (socket.connected) socket.emit("chat message", messageData);
 
-  addMessage(messageData); // show immediately
+  addMessage(messageData); // Show immediately
   saveMessageOffline(messageData);
 
   input.value = "";
@@ -76,9 +75,8 @@ form.addEventListener("submit", (e) => {
 // INCOMING MESSAGES
 // -----------------
 socket.on("chat message", (data) => {
-  // If message.sender === socket.id, it is self, otherwise false
-  data.self = data.sender === socket.id;
-  addMessage(data);
+  const isSelf = data.sender === socket.id;
+  addMessage(data); // DOM alignment handled inside addMessage
   saveMessageOffline(data);
 });
 
@@ -86,7 +84,7 @@ socket.on("chat message", (data) => {
 // TYPING INDICATOR
 // -----------------
 socket.on("typing", (name) => {
-  typingIndicator.textContent = name ? `${name} is typing...` : "";
+  typingIndicator.textContent = name && name !== username ? `${name} is typing...` : "";
 });
 
 input.addEventListener("input", () => {
@@ -104,18 +102,19 @@ socket.on("online-users", (count) => {
 // ADD MESSAGE TO DOM
 // -----------------
 function addMessage(data) {
+  const isSelf = data.sender === socket.id || data.self === true;
+
   const div = document.createElement("div");
-  div.className = "message" + (data.self ? " self" : "");
+  div.className = "message" + (isSelf ? " self" : "");
   div.dataset.timestamp = data.timestamp;
 
-  // Message content with username and delete button
   div.innerHTML = `
-    <span class="username">${data.username}:</span> 
+    <span class="username">${data.username}:</span>
     <span class="text">${data.text}</span>
     <button class="delete-btn">🗑️</button>
   `;
 
-  // Delete button functionality
+  // Delete button
   const deleteBtn = div.querySelector(".delete-btn");
   deleteBtn.addEventListener("click", () => {
     const choice = confirm("Delete for everyone? Cancel = delete for me only.");
@@ -155,7 +154,12 @@ function saveMessageOffline(msg) {
   if (!db) return;
   const tx = db.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
-  store.put(msg);
+
+  const messageToSave = {
+    ...msg,
+    self: msg.sender === socket.id
+  };
+  store.put(messageToSave);
 }
 
 function loadMessagesFromDB() {
@@ -166,9 +170,7 @@ function loadMessagesFromDB() {
   store.openCursor().onsuccess = (event) => {
     const cursor = event.target.result;
     if (cursor) {
-      const message = cursor.value;
-      // Use stored self property
-      addMessage(message);
+      addMessage(cursor.value);
       cursor.continue();
     }
   };
@@ -202,7 +204,7 @@ function sendQueuedMessages() {
   store.openCursor().onsuccess = (event) => {
     const cursor = event.target.result;
     if (cursor) {
-      if (cursor.value.self) {
+      if (cursor.value.sender === socket.id) {
         socket.emit("chat message", cursor.value);
       }
       cursor.continue();
