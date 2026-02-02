@@ -108,12 +108,13 @@ function addMessage(data) {
   div.className = "message" + (isSelf ? " self" : "");
   div.dataset.timestamp = data.timestamp;
 
-  div.innerHTML = `
-    <span class="username">${data.username}:</span>
-    <span class="text">${data.text}</span>
+div.innerHTML = `
+  <div class="message-header">
+    <span class="username">${data.username}</span>
     <button class="delete-btn">🗑️</button>
-  `;
-
+  </div>
+  <div class="text">${data.text}</div>
+`;
   // Delete button
   const deleteBtn = div.querySelector(".delete-btn");
   deleteBtn.addEventListener("click", () => {
