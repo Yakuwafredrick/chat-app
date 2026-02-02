@@ -18,9 +18,12 @@ app.use(express.static(path.join(__dirname, "public")));
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
 
-  socket.on("chat message", (msg) => {
-    io.emit("chat message", msg);
+  socket.on("chat message", (text) => {
+  io.emit("chat message", {
+    text,
+    sender: socket.id
   });
+});
 
   socket.on("disconnect", () => {
     console.log("A user disconnected:", socket.id);
