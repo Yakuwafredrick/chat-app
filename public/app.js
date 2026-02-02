@@ -61,6 +61,7 @@ form.addEventListener("submit", (e) => {
     username,
     sender: socket.id,
     timestamp: Date.now(),
+    self: true // mark as own message
   };
 
   if (socket.connected) socket.emit("chat message", messageData);
@@ -75,7 +76,9 @@ form.addEventListener("submit", (e) => {
 // INCOMING MESSAGES
 // -----------------
 socket.on("chat message", (data) => {
-  addMessage(data); // Add message from anyone
+  // If message.sender === socket.id, it is self, otherwise false
+  data.self = data.sender === socket.id;
+  addMessage(data);
   saveMessageOffline(data);
 });
 
@@ -101,12 +104,11 @@ socket.on("online-users", (count) => {
 // ADD MESSAGE TO DOM
 // -----------------
 function addMessage(data) {
-  const isSelf = data.sender === socket.id;
   const div = document.createElement("div");
-  div.className = "message" + (isSelf ? " self" : "");
+  div.className = "message" + (data.self ? " self" : "");
   div.dataset.timestamp = data.timestamp;
 
-  // Message content
+  // Message content with username and delete button
   div.innerHTML = `
     <span class="username">${data.username}:</span> 
     <span class="text">${data.text}</span>
@@ -118,12 +120,10 @@ function addMessage(data) {
   deleteBtn.addEventListener("click", () => {
     const choice = confirm("Delete for everyone? Cancel = delete for me only.");
     if (choice) {
-      // Emit delete for everyone
       socket.emit("delete message", data.timestamp);
       removeMessageFromDOM(data.timestamp);
       deleteMessageFromDB(data.timestamp);
     } else {
-      // Delete just for this user
       removeMessageFromDOM(data.timestamp);
     }
   });
@@ -166,7 +166,9 @@ function loadMessagesFromDB() {
   store.openCursor().onsuccess = (event) => {
     const cursor = event.target.result;
     if (cursor) {
-      addMessage(cursor.value);
+      const message = cursor.value;
+      // Use stored self property
+      addMessage(message);
       cursor.continue();
     }
   };
@@ -177,7 +179,6 @@ function deleteMessageFromDB(timestamp) {
   const tx = db.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
 
-  // Find the message by timestamp and delete
   store.openCursor().onsuccess = (event) => {
     const cursor = event.target.result;
     if (cursor) {
@@ -201,7 +202,7 @@ function sendQueuedMessages() {
   store.openCursor().onsuccess = (event) => {
     const cursor = event.target.result;
     if (cursor) {
-      if (cursor.value.sender === socket.id) {
+      if (cursor.value.self) {
         socket.emit("chat message", cursor.value);
       }
       cursor.continue();
