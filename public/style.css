@@ -25,17 +25,16 @@ body {
    CHAT CONTAINER
 ========================= */
 .chat-container {
-  user-select: none;
   width: 100%;
   max-width: 420px;
-  height: 100dvh; /* modern mobile support */
+  height: 100dvh;
   background: #020617;
   display: flex;
   flex-direction: column;
   border-radius: 0;
 }
 
-/* Desktop / tablet rounding */
+/* Desktop/tablet */
 @media (min-width: 640px) {
   .chat-container {
     height: 90vh;
@@ -80,7 +79,9 @@ body {
   font-size: 0.9rem;
   line-height: 1.45;
   word-wrap: break-word;
-  align-self: flex-start;
+  align-self: flex-start; /* default = left */
+  display: flex;
+  justify-content: space-between;
   animation: fadeIn 0.2s ease;
 }
 
@@ -95,6 +96,16 @@ body {
 .message .username {
   font-weight: 600;
   margin-right: 6px;
+}
+
+/* Delete button */
+.message .delete-btn {
+  font-size: 0.75rem;
+  color: #f87171;
+  cursor: pointer;
+  margin-left: 8px;
+  background: transparent;
+  border: none;
 }
 
 /* Slightly larger text on big screens */
@@ -176,14 +187,4 @@ body {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-/* =========================
-   DELETE BUTTON (optional)
-========================= */
-.message .delete-btn {
-  font-size: 0.75rem;
-  color: #f87171;
-  cursor: pointer;
-  margin-left: 8px;
 }
