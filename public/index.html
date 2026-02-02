@@ -23,33 +23,17 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-<script>
-  const socket = io();
-  const form = document.getElementById("form");
-  const input = document.getElementById("input");
-  const messages = document.getElementById("messages");
 
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    if (!input.value.trim()) return;
-
-    socket.emit("chat message", input.value);
-    input.value = "";
+  <script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").then(
+      (reg) => console.log("Service Worker registered", reg.scope),
+      (err) => console.log("Service Worker registration failed", err)
+    );
   });
-
-  socket.on("chat message", (data) => {
-    const isSelf = data.sender === socket.id;
-    addMessage(data.text, isSelf);
-  });
-
-  function addMessage(text, self) {
-    const div = document.createElement("div");
-    div.className = "message" + (self ? " self" : "");
-    div.textContent = text;
-    messages.appendChild(div);
-    messages.scrollTop = messages.scrollHeight;
-  }
+}
 </script>
-  
+<script src="app.js"></script>
 </body>
 </html>
