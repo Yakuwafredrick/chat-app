@@ -32,8 +32,6 @@ body {
   background: #020617;
   display: flex;
   flex-direction: column;
-
-  /* Desktop polish */
   border-radius: 0;
 }
 
@@ -69,25 +67,34 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-
-  /* Smooth scrolling on mobile */
   -webkit-overflow-scrolling: touch;
 }
 
+/* Received messages (left) */
 .message {
   max-width: 78%;
   padding: 10px 14px;
   border-radius: 14px;
   background: #1e293b;
+  color: #e5e7eb;
   font-size: 0.9rem;
   line-height: 1.45;
   word-wrap: break-word;
+  align-self: flex-start;
   animation: fadeIn 0.2s ease;
 }
 
+/* Sent messages (right) */
 .message.self {
   align-self: flex-end;
   background: #2563eb;
+  color: #fff;
+}
+
+/* Username styling */
+.message .username {
+  font-weight: 600;
+  margin-right: 6px;
 }
 
 /* Slightly larger text on big screens */
@@ -107,8 +114,6 @@ body {
   border-top: 1px solid #1e293b;
   background: #020617;
   flex-shrink: 0;
-
-  /* Safe area support for notched phones */
   padding-bottom: calc(12px + env(safe-area-inset-bottom));
 }
 
@@ -143,6 +148,23 @@ body {
 }
 
 /* =========================
+   TYPING INDICATOR & ONLINE COUNT
+========================= */
+.typing-indicator {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  margin-bottom: 4px;
+  text-align: left;
+}
+
+.online-count {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+/* =========================
    ANIMATIONS
 ========================= */
 @keyframes fadeIn {
@@ -154,4 +176,14 @@ body {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* =========================
+   DELETE BUTTON (optional)
+========================= */
+.message .delete-btn {
+  font-size: 0.75rem;
+  color: #f87171;
+  cursor: pointer;
+  margin-left: 8px;
 }
