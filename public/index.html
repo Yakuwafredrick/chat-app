@@ -23,33 +23,33 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io();
-    const form = document.getElementById("form");
-    const input = document.getElementById("input");
-    const messages = document.getElementById("messages");
+<script>
+  const socket = io();
+  const form = document.getElementById("form");
+  const input = document.getElementById("input");
+  const messages = document.getElementById("messages");
 
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      if (!input.value.trim()) return;
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!input.value.trim()) return;
 
-      addMessage(input.value, true);
-      socket.emit("chat message", input.value);
-      input.value = "";
-    });
+    socket.emit("chat message", input.value);
+    input.value = "";
+  });
 
-    socket.on("chat message", (msg) => {
-      addMessage(msg, false);
-    });
+  socket.on("chat message", (data) => {
+    const isSelf = data.sender === socket.id;
+    addMessage(data.text, isSelf);
+  });
 
-    function addMessage(text, self) {
-      const div = document.createElement("div");
-      div.className = "message" + (self ? " self" : "");
-      div.textContent = text;
-      messages.appendChild(div);
-      messages.scrollTop = messages.scrollHeight;
-    }
-  </script>
+  function addMessage(text, self) {
+    const div = document.createElement("div");
+    div.className = "message" + (self ? " self" : "");
+    div.textContent = text;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+</script>
   <script src="app.js"></script>
 </body>
 </html>
