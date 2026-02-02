@@ -1,6 +1,6 @@
 // ===== app.js =====
 
-// Ask user for a username when they load the chat
+// Ask user for a username
 let username = localStorage.getItem("username");
 if (!username) {
   username = prompt("Enter your username") || "Anonymous";
@@ -16,7 +16,6 @@ request.onupgradeneeded = (e) => {
   db = e.target.result;
   if (!db.objectStoreNames.contains("messages")) {
     const store = db.createObjectStore("messages", { autoIncrement: true });
-    // index by timestamp for easier sorting
     store.createIndex("timestamp", "timestamp");
   }
 };
@@ -43,7 +42,9 @@ const messages = document.getElementById("messages");
 let typingTimeout;
 const typingIndicator = document.createElement("div");
 typingIndicator.className = "typing-indicator";
-typingIndicator.textContent = "";
+typingIndicator.style.fontSize = "0.85rem";
+typingIndicator.style.color = "#94a3b8";
+typingIndicator.style.marginBottom = "4px";
 messages.appendChild(typingIndicator);
 
 // Online users count
@@ -69,11 +70,11 @@ form.addEventListener("submit", (e) => {
 
   if (socket.connected) {
     socket.emit("chat message", messageData);
-  } else {
-    saveMessageOffline(messageData); // Save for later if offline
   }
 
-  addMessage(messageData, true); // Show own message immediately
+  addMessage(messageData, true);            // show own message
+  saveMessageOffline(messageData, true);    // store in IndexedDB
+
   input.value = "";
 });
 
@@ -81,7 +82,7 @@ form.addEventListener("submit", (e) => {
 socket.on("chat message", (data) => {
   const isSelf = data.sender === socket.id;
   if (!isSelf) addMessage(data, false);
-  saveMessageOffline(data); // Save all messages locally
+  saveMessageOffline(data, data.sender === socket.id);
 });
 
 // Listen for typing events
@@ -145,11 +146,12 @@ function removeMessageFromDOM(timestamp) {
 }
 
 // Save message to IndexedDB
-function saveMessageOffline(msg) {
+function saveMessageOffline(msg, self = false) {
   if (!db) return;
   const tx = db.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
-  store.put(msg);
+  const messageData = { ...msg, self };
+  store.put(messageData);
 }
 
 // Load messages from IndexedDB
@@ -161,7 +163,8 @@ function loadMessagesFromDB() {
   store.openCursor().onsuccess = (event) => {
     const cursor = event.target.result;
     if (cursor) {
-      addMessage(cursor.value, cursor.value.sender === socket.id);
+      const message = cursor.value;
+      addMessage(message, message.self);
       cursor.continue();
     }
   };
@@ -177,8 +180,8 @@ function sendQueuedMessages() {
   store.openCursor().onsuccess = (event) => {
     const cursor = event.target.result;
     if (cursor) {
-      // If message is ours, emit
-      if (cursor.value.sender === socket.id) {
+      // Only emit our own messages
+      if (cursor.value.self) {
         socket.emit("chat message", cursor.value);
       }
       cursor.continue();
