@@ -22,15 +22,15 @@ request.onupgradeneeded = (e) => {
 
 request.onsuccess = (e) => {
   db = e.target.result;
-  loadMessagesFromDB();       // Load previous messages
-  sendQueuedMessages();       // Send any queued offline messages
+  loadMessagesFromDB();
+  sendQueuedMessages();
 };
 
 request.onerror = (e) => {
   console.error("IndexedDB error:", e.target.error);
 };
 
-// ---- Socket.IO setup ----
+// Socket.IO setup
 const socket = io();
 
 // DOM elements
@@ -39,23 +39,16 @@ const input = document.getElementById("input");
 const messages = document.getElementById("messages");
 
 // Typing indicator
-let typingTimeout;
 const typingIndicator = document.createElement("div");
 typingIndicator.className = "typing-indicator";
-typingIndicator.style.fontSize = "0.85rem";
-typingIndicator.style.color = "#94a3b8";
-typingIndicator.style.marginBottom = "4px";
 messages.appendChild(typingIndicator);
 
 // Online users count
 const onlineCount = document.createElement("div");
 onlineCount.className = "online-count";
-onlineCount.style.textAlign = "center";
-onlineCount.style.fontSize = "0.85rem";
-onlineCount.style.color = "#94a3b8";
 messages.prepend(onlineCount);
 
-// Handle form submission
+// Form submit
 form.addEventListener("submit", (e) => {
   e.preventDefault();
   const msg = input.value.trim();
@@ -68,38 +61,32 @@ form.addEventListener("submit", (e) => {
     timestamp: Date.now(),
   };
 
-  if (socket.connected) {
-    socket.emit("chat message", messageData);
-  }
+  if (socket.connected) socket.emit("chat message", messageData);
 
-  addMessage(messageData, true);            // show own message
-  saveMessageOffline(messageData, true);    // store in IndexedDB
+  addMessage(messageData, true); // own message
+  saveMessageOffline(messageData, true);
 
   input.value = "";
 });
 
-// Listen for incoming messages
+// Incoming messages
 socket.on("chat message", (data) => {
   const isSelf = data.sender === socket.id;
   if (!isSelf) addMessage(data, false);
   saveMessageOffline(data, data.sender === socket.id);
 });
 
-// Listen for typing events
+// Typing events
 socket.on("typing", (data) => {
   typingIndicator.textContent = data ? `${data} is typing...` : "";
 });
-
-// Listen for online users
-socket.on("online-users", (count) => {
-  onlineCount.textContent = `Online users: ${count}`;
-});
-
-// Send typing event
 input.addEventListener("input", () => {
   socket.emit("typing", username);
-  clearTimeout(typingTimeout);
-  typingTimeout = setTimeout(() => socket.emit("typing", ""), 1000);
+});
+
+// Online users
+socket.on("online-users", (count) => {
+  onlineCount.textContent = `Online users: ${count}`;
 });
 
 // Add message to DOM
@@ -107,54 +94,19 @@ function addMessage(data, self) {
   const div = document.createElement("div");
   div.className = "message" + (self ? " self" : "");
   div.dataset.timestamp = data.timestamp;
-
-  // Add delete button
-  const deleteBtn = document.createElement("span");
-  deleteBtn.className = "delete-btn";
-  deleteBtn.textContent = "×";
-  deleteBtn.title = "Delete message";
-  deleteBtn.style.cursor = "pointer";
-  deleteBtn.style.marginLeft = "6px";
-  deleteBtn.addEventListener("click", () => showDeleteOptions(data, div));
-
-  div.innerHTML = `<strong>${data.username}:</strong> ${data.text}`;
-  div.appendChild(deleteBtn);
-
+  div.innerHTML = `<span class="username">${data.username}:</span> ${data.text}`;
   messages.appendChild(div);
   messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
 }
 
-// Show delete options
-function showDeleteOptions(data, messageDiv) {
-  const choice = confirm("Delete this message for everyone? Press Cancel to delete only for you.");
-  if (choice) {
-    // Delete for everyone
-    socket.emit("delete message", data.timestamp);
-    removeMessageFromDOM(data.timestamp);
-    removeMessageFromDB(data.timestamp);
-  } else {
-    // Delete for me
-    removeMessageFromDOM(data.timestamp);
-    removeMessageFromDB(data.timestamp);
-  }
-}
-
-// Remove message from DOM by timestamp
-function removeMessageFromDOM(timestamp) {
-  const div = messages.querySelector(`.message[data-timestamp='${timestamp}']`);
-  if (div) div.remove();
-}
-
-// Save message to IndexedDB
+// IndexedDB
 function saveMessageOffline(msg, self = false) {
   if (!db) return;
   const tx = db.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
-  const messageData = { ...msg, self };
-  store.put(messageData);
+  store.put({ ...msg, self });
 }
 
-// Load messages from IndexedDB
 function loadMessagesFromDB() {
   if (!db) return;
   const tx = db.transaction("messages", "readonly");
@@ -170,7 +122,6 @@ function loadMessagesFromDB() {
   };
 }
 
-// Send queued messages when online
 function sendQueuedMessages() {
   if (!db || !socket.connected) return;
 
@@ -180,39 +131,10 @@ function sendQueuedMessages() {
   store.openCursor().onsuccess = (event) => {
     const cursor = event.target.result;
     if (cursor) {
-      // Only emit our own messages
-      if (cursor.value.self) {
-        socket.emit("chat message", cursor.value);
-      }
+      if (cursor.value.self) socket.emit("chat message", cursor.value);
       cursor.continue();
     }
   };
 }
 
-// Re-send queued messages on reconnect
 socket.on("connect", () => sendQueuedMessages());
-
-// Handle delete message from server
-socket.on("delete message", (timestamp) => {
-  removeMessageFromDOM(timestamp);
-  removeMessageFromDB(timestamp);
-});
-
-// Remove message from IndexedDB
-function removeMessageFromDB(timestamp) {
-  if (!db) return;
-  const tx = db.transaction("messages", "readwrite");
-  const store = tx.objectStore("messages");
-
-  const index = store.index("timestamp");
-  const request = index.openCursor();
-  request.onsuccess = (e) => {
-    const cursor = e.target.result;
-    if (cursor) {
-      if (cursor.value.timestamp === timestamp) {
-        cursor.delete();
-      }
-      cursor.continue();
-    }
-  };
-}
