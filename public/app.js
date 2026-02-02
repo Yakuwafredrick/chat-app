@@ -15,7 +15,7 @@ const request = indexedDB.open("yakuwaz-chat", 1);
 request.onupgradeneeded = (e) => {
   db = e.target.result;
   if (!db.objectStoreNames.contains("messages")) {
-    const store = db.createObjectStore("messages", { keyPath: "id", autoIncrement: true });
+    const store = db.createObjectStore("messages", { autoIncrement: true });
     store.createIndex("timestamp", "timestamp");
   }
 };
@@ -30,7 +30,7 @@ request.onerror = (e) => {
   console.error("IndexedDB error:", e.target.error);
 };
 
-// Socket.IO setup
+// ---- Socket.IO setup ----
 const socket = io();
 
 // DOM elements
@@ -48,52 +48,109 @@ const onlineCount = document.createElement("div");
 onlineCount.className = "online-count";
 messages.prepend(onlineCount);
 
-// =========================
-// FUNCTIONS
-// =========================
+// -----------------
+// FORM SUBMIT
+// -----------------
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const msg = input.value.trim();
+  if (!msg) return;
 
-// Add message to DOM
-function addMessage(msg, self = false) {
+  const messageData = {
+    text: msg,
+    username,
+    sender: socket.id,
+    timestamp: Date.now(),
+  };
+
+  if (socket.connected) socket.emit("chat message", messageData);
+
+  addMessage(messageData); // show immediately
+  saveMessageOffline(messageData);
+
+  input.value = "";
+});
+
+// -----------------
+// INCOMING MESSAGES
+// -----------------
+socket.on("chat message", (data) => {
+  addMessage(data); // Add message from anyone
+  saveMessageOffline(data);
+});
+
+// -----------------
+// TYPING INDICATOR
+// -----------------
+socket.on("typing", (name) => {
+  typingIndicator.textContent = name ? `${name} is typing...` : "";
+});
+
+input.addEventListener("input", () => {
+  socket.emit("typing", username);
+});
+
+// -----------------
+// ONLINE USERS
+// -----------------
+socket.on("online-users", (count) => {
+  onlineCount.textContent = `Online users: ${count}`;
+});
+
+// -----------------
+// ADD MESSAGE TO DOM
+// -----------------
+function addMessage(data) {
+  const isSelf = data.sender === socket.id;
   const div = document.createElement("div");
-  div.className = "message" + (self ? " self" : "");
-  div.dataset.id = msg.id;
-  div.dataset.sender = msg.sender;
-  div.dataset.timestamp = msg.timestamp;
+  div.className = "message" + (isSelf ? " self" : "");
+  div.dataset.timestamp = data.timestamp;
 
-  // message inner HTML with delete button
+  // Message content
   div.innerHTML = `
-    <span class="username">${msg.username}:</span> ${msg.text}
-    ${self ? `<span class="delete-btn">🗑️</span>` : ""}
+    <span class="username">${data.username}:</span> 
+    <span class="text">${data.text}</span>
+    <button class="delete-btn">🗑️</button>
   `;
+
+  // Delete button functionality
+  const deleteBtn = div.querySelector(".delete-btn");
+  deleteBtn.addEventListener("click", () => {
+    const choice = confirm("Delete for everyone? Cancel = delete for me only.");
+    if (choice) {
+      // Emit delete for everyone
+      socket.emit("delete message", data.timestamp);
+      removeMessageFromDOM(data.timestamp);
+      deleteMessageFromDB(data.timestamp);
+    } else {
+      // Delete just for this user
+      removeMessageFromDOM(data.timestamp);
+    }
+  });
 
   messages.appendChild(div);
   messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
-
-  // Add delete button functionality
-  if (self) {
-    const deleteBtn = div.querySelector(".delete-btn");
-    deleteBtn.addEventListener("click", () => showDeleteOptions(msg.id));
-  }
 }
 
-// Show delete options
-function showDeleteOptions(id) {
-  const confirmDelete = confirm("Delete for everyone? Cancel = delete for me.");
-  if (confirmDelete) {
-    // Delete for everyone
-    socket.emit("delete message", id);
-    deleteMessageFromDB(id);
-    const msgDiv = document.querySelector(`.message[data-id='${id}']`);
-    if (msgDiv) msgDiv.remove();
-  } else {
-    // Delete for me
-    deleteMessageFromDB(id);
-    const msgDiv = document.querySelector(`.message[data-id='${id}']`);
-    if (msgDiv) msgDiv.remove();
-  }
+// -----------------
+// REMOVE MESSAGE FROM DOM
+// -----------------
+function removeMessageFromDOM(timestamp) {
+  const msgDiv = messages.querySelector(`.message[data-timestamp='${timestamp}']`);
+  if (msgDiv) msgDiv.remove();
 }
 
-// Save message to IndexedDB
+// -----------------
+// SOCKET.IO DELETE EVENT
+// -----------------
+socket.on("delete message", (timestamp) => {
+  removeMessageFromDOM(timestamp);
+  deleteMessageFromDB(timestamp);
+});
+
+// -----------------
+// INDEXEDDB FUNCTIONS
+// -----------------
 function saveMessageOffline(msg) {
   if (!db) return;
   const tx = db.transaction("messages", "readwrite");
@@ -101,113 +158,55 @@ function saveMessageOffline(msg) {
   store.put(msg);
 }
 
-// Delete message from IndexedDB
-function deleteMessageFromDB(id) {
-  if (!db) return;
-  const tx = db.transaction("messages", "readwrite");
-  const store = tx.objectStore("messages");
-  store.delete(id);
-}
-
-// Load messages from IndexedDB on page load
 function loadMessagesFromDB() {
   if (!db) return;
   const tx = db.transaction("messages", "readonly");
   const store = tx.objectStore("messages");
 
-  store.openCursor().onsuccess = (e) => {
-    const cursor = e.target.result;
+  store.openCursor().onsuccess = (event) => {
+    const cursor = event.target.result;
     if (cursor) {
-      addMessage(cursor.value, cursor.value.sender === socket.id);
+      addMessage(cursor.value);
       cursor.continue();
     }
   };
 }
 
-// Send queued messages (offline -> online)
+function deleteMessageFromDB(timestamp) {
+  if (!db) return;
+  const tx = db.transaction("messages", "readwrite");
+  const store = tx.objectStore("messages");
+
+  // Find the message by timestamp and delete
+  store.openCursor().onsuccess = (event) => {
+    const cursor = event.target.result;
+    if (cursor) {
+      if (cursor.value.timestamp === timestamp) {
+        store.delete(cursor.key);
+      }
+      cursor.continue();
+    }
+  };
+}
+
+// -----------------
+// QUEUED MESSAGES (offline → online)
+// -----------------
 function sendQueuedMessages() {
   if (!db || !socket.connected) return;
 
-  const tx = db.transaction("messages", "readonly");
+  const tx = db.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
 
-  store.openCursor().onsuccess = (e) => {
-    const cursor = e.target.result;
-    if (cursor && cursor.value.sender === socket.id && !cursor.value.sent) {
-      socket.emit("chat message", cursor.value);
-      cursor.value.sent = true;
-      saveMessageOffline(cursor.value);
+  store.openCursor().onsuccess = (event) => {
+    const cursor = event.target.result;
+    if (cursor) {
+      if (cursor.value.sender === socket.id) {
+        socket.emit("chat message", cursor.value);
+      }
       cursor.continue();
     }
   };
 }
 
-// =========================
-// SOCKET.IO EVENTS
-// =========================
-
-// Incoming messages
-socket.on("chat message", (data) => {
-  const self = data.sender === socket.id;
-  addMessage(data, self);
-  saveMessageOffline({ ...data, sent: true });
-});
-
-// Typing indicator
-socket.on("typing", (usernameTyping) => {
-  typingIndicator.textContent = usernameTyping ? `${usernameTyping} is typing...` : "";
-});
-
-// Online users
-socket.on("online-users", (count) => {
-  onlineCount.textContent = `Online users: ${count}`;
-});
-
-// Delete message for everyone
-socket.on("delete message", (id) => {
-  const msgDiv = document.querySelector(`.message[data-id='${id}']`);
-  if (msgDiv) msgDiv.remove();
-  deleteMessageFromDB(id);
-});
-
-// =========================
-// FORM SUBMISSION
-// =========================
-form.addEventListener("submit", (e) => {
-  e.preventDefault();
-  const text = input.value.trim();
-  if (!text) return;
-
-  const msg = {
-    id: Date.now() + Math.random(), // unique id
-    text,
-    username,
-    sender: socket.id,
-    timestamp: Date.now(),
-    sent: socket.connected,
-  };
-
-  addMessage(msg, true);
-  saveMessageOffline(msg);
-
-  if (socket.connected) socket.emit("chat message", msg);
-
-  input.value = "";
-});
-
-// Typing event
-let typingTimeout;
-input.addEventListener("input", () => {
-  socket.emit("typing", username);
-  clearTimeout(typingTimeout);
-  typingTimeout = setTimeout(() => {
-    socket.emit("typing", "");
-  }, 1000);
-});
-
-// =========================
-// SOCKET.IO CONNECTION
-// =========================
-socket.on("connect", () => {
-  sendQueuedMessages();
-});
+socket.on("connect", () => sendQueuedMessages());
