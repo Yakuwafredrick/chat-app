@@ -246,18 +246,22 @@ function loadMessagesFromDB() {
   index.openCursor().onsuccess = (e) => {
     const cursor = e.target.result;
     if (cursor) {
-      messagesArr.push(cursor.value);
+      messagesArr.push(cursor.value);  // collect messages
       cursor.continue();
     } else {
-      // Sort just in case
+      // Sort messages just in case
       messagesArr.sort((a, b) => a.timestamp - b.timestamp);
 
+      // Add messages to DOM with proper alignment
       messagesArr.forEach((msg) => {
         addMessage({ 
           ...msg, 
           self: msg.sender === socket.id 
         });
       });
+
+      // Scroll to bottom
+      messages.scrollTop = messages.scrollHeight;
     }
   };
 }
