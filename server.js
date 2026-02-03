@@ -39,17 +39,14 @@ io.on("connection", (socket) => {
 
   // Chat message
   socket.on("chat message", (msg) => {
-    const message = {
-      id: Date.now() + "-" + Math.random().toString(36).slice(2),
-      text: msg.text,
-      sender: socket.id,
-      username: msg.username,
-      timestamp: Date.now()
-    };
+  chatHistory.push(msg);
+  io.emit("chat message", msg);
 
-    chatHistory.push(message);
-    io.emit("chat message", message);
+  socket.emit("message-status", {
+    id: msg.id,
+    status: "delivered"
   });
+});
 
   // ✅ Typing indicator (FIXED)
   socket.on("typing", (status) => {
@@ -60,17 +57,16 @@ io.on("connection", (socket) => {
     });
   });
 // Message delivered
-socket.on("delivered", (timestamp) => {
+socket.on("delivered", (id) => {
   socket.broadcast.emit("message-status", {
-    timestamp,
+    id,
     status: "delivered"
   });
 });
 
-// Message seen
-socket.on("seen", (timestamp) => {
+socket.on("seen", (id) => {
   socket.broadcast.emit("message-status", {
-    timestamp,
+    id,
     status: "seen"
   });
 });
