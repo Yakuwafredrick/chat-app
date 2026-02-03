@@ -59,7 +59,21 @@ io.on("connection", (socket) => {
       status
     });
   });
+// Message delivered
+socket.on("delivered", (timestamp) => {
+  socket.broadcast.emit("message-status", {
+    timestamp,
+    status: "delivered"
+  });
+});
 
+// Message seen
+socket.on("seen", (timestamp) => {
+  socket.broadcast.emit("message-status", {
+    timestamp,
+    status: "seen"
+  });
+});
   // Delete message
   socket.on("delete message", ({ id, type }) => {
     if (type === "me") {
