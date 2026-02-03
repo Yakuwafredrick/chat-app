@@ -86,6 +86,36 @@ body {
   animation: fadeIn 0.2s ease;
 }
 
+/* =========================
+   WHATSAPP-STYLE BUBBLE TAILS
+========================= */
+
+/* Base position for tail */
+.message {
+  position: relative;
+}
+
+/* RECEIVED (LEFT) TAIL */
+.message::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  bottom: 8px;
+  width: 12px;
+  height: 12px;
+  background: #1e293b;
+  transform: rotate(45deg);
+  border-bottom-right-radius: 2px;
+}
+
+/* SENT (RIGHT) TAIL */
+.message.self::before {
+  left: auto;
+  right: -6px;
+  background: #2563eb;
+  transform: rotate(45deg);
+}
+
 /* Sender (right side) */
 .message.self {
   align-self: flex-end;
@@ -172,6 +202,14 @@ body {
 /* =========================
    TYPING INDICATOR & ONLINE COUNT
 ========================= */
+.message.typing {
+  font-style: italic;
+  opacity: 0.8;
+  background: transparent;
+  color: #94a3b8;
+  align-self: flex-start;
+}
+
 .typing-indicator {
   font-size: 0.85rem;
   color: #94a3b8;
