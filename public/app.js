@@ -48,9 +48,7 @@ const input = document.getElementById("input");
 const messages = document.getElementById("messages");
 
 // Online users count
-const onlineCount = document.createElement("div");
-onlineCount.className = "online-count";
-messages.prepend(onlineCount);
+const onlineCount = document.getElementById("onlineCount");
 
 // -----------------
 // TYPING STATE
