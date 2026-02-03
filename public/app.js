@@ -66,11 +66,14 @@ form.addEventListener("submit", (e) => {
   if (!text) return;
 
   const messageData = {
-    text,
-    username,
-    sender: socket.id,
-    timestamp: Date.now()
-  };
+  id: crypto.randomUUID(), // 🔑 permanent ID
+  text,
+  username,
+  sender: socket.id,
+  timestamp: Date.now(),
+  status: "sent",
+  synced: socket.connected
+};
 
   // Stop typing when message is sent
   socket.emit("typing", false);
@@ -118,9 +121,43 @@ socket.on("message-status", ({ timestamp, status }) => {
 
   const statusEl = msg.querySelector(".status");
   if (statusEl) {
-    statusEl.dataset.status = status;
+  statusEl.dataset.status = status;
   }
 });
+socket.on("message-status", ({ id, status }) => {
+  const el = document.querySelector(`.message[data-id="${id}"]`);
+  if (!el) return;
+
+  const statusEl = el.querySelector(".status");
+  if (statusEl) {
+    statusEl.textContent =
+      status === "seen" ? "✔✔" :
+      status === "delivered" ? "✔✔" :
+      "✔";
+  }
+
+  updateMessageStatusInDB(id, status);
+});
+function updateMessageStatusInDB(id, status) {
+  if (!db) return;
+
+  const tx = db.transaction("messages", "readwrite");
+  const store = tx.objectStore("messages");
+
+  store.openCursor().onsuccess = (e) => {
+    const cursor = e.target.result;
+    if (!cursor) return;
+
+    if (cursor.value.id === id) {
+      cursor.update({
+        ...cursor.value,
+        status
+      });
+      return;
+    }
+    cursor.continue();
+  };
+}
 // -----------------
 // TYPING EMIT (WhatsApp-style)
 // -----------------
@@ -163,7 +200,7 @@ function addMessage(data) {
   div.classList.add("message");
   if (isSelf) div.classList.add("self");
 
-  div.dataset.timestamp = data.timestamp;
+  div.dataset.id = data.id;
 
   div.innerHTML = `
     <div class="message-header">
@@ -172,6 +209,7 @@ function addMessage(data) {
       <button class="delete-btn">🗑️</button>
     </div>
     <div class="text">${data.text}</div>
+<div class="status">${data.status === "seen" ? "✔✔" : data.status === "delivered" ? "✔✔" : "✔"}</div>
   `;
 
   const deleteBtn = div.querySelector(".delete-btn");
@@ -179,6 +217,10 @@ function addMessage(data) {
     const confirmDelete = confirm(
       "Delete for everyone?\nCancel = delete for me only."
     );
+
+    if (data.sender !== socket.id) {
+  socket.emit("seen", data.id);
+}
 
     if (confirmDelete) {
       socket.emit("delete message", data.timestamp);
@@ -245,9 +287,10 @@ function saveMessageOffline(msg) {
   const store = tx.objectStore("messages");
 
   store.put({
-    ...msg,
-    self: msg.sender === socket.id
-  });
+  ...msg,
+  self: msg.sender === socket.id,
+  synced: msg.synced ?? false
+});
 }
 
 function loadMessagesFromDB() {
@@ -291,13 +334,19 @@ function sendQueuedMessages() {
 
   store.openCursor().onsuccess = (e) => {
     const cursor = e.target.result;
-    if (cursor) {
-      if (cursor.value.sender === socket.id) {
-        socket.emit("chat message", cursor.value);
-      }
-      cursor.continue();
+    if (!cursor) return;
+
+    if (cursor.value.sender === socket.id && !cursor.value.synced) {
+      socket.emit("chat message", cursor.value);
+
+      cursor.update({
+        ...cursor.value,
+        synced: true
+      });
     }
+    cursor.continue();
   };
 }
+
 
 socket.on("connect", sendQueuedMessages);
