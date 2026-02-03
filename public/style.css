@@ -256,3 +256,24 @@ body {
     transform: translateY(0);
   }
 }
+/* =========================
+   MESSAGE STATUS (SEEN)
+========================= */
+.status {
+  font-size: 0.7rem;
+  margin-left: 6px;
+  opacity: 0.85;
+}
+
+.status::after {
+  content: "✓";
+}
+
+.status[data-status="delivered"]::after {
+  content: "✓✓";
+}
+
+.status[data-status="seen"]::after {
+  content: "✓✓";
+  color: #38bdf8; /* WhatsApp blue */
+}
