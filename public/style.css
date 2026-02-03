@@ -55,12 +55,7 @@ body {
   text-align: center;
   flex-shrink: 0;
 }
-.online-count {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  background: #020617;
-}
+
 /* =========================
    MESSAGES
 ========================= */
