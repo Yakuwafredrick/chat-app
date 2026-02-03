@@ -55,7 +55,26 @@ body {
   text-align: center;
   flex-shrink: 0;
 }
+/* =========================
+   CHAT BODY (FIXED STATUS)
+========================= */
+.chat-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 
+/* Online users bar (NON-SCROLLABLE) */
+.online-count {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  background: #020617;
+  border-bottom: 1px solid #1e293b;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  text-align: center;
+}
 /* =========================
    MESSAGES
 ========================= */
