@@ -20,7 +20,7 @@ const request = indexedDB.open("yakuwaz-chat", 1);
 request.onupgradeneeded = (e) => {
   db = e.target.result;
   if (!db.objectStoreNames.contains("messages")) {
-    const store = db.createObjectStore("messages", { autoIncrement: true });
+    const store = db.createObjectStore("messages", { keyPath: "id" });
     store.createIndex("timestamp", "timestamp");
   }
 };
@@ -29,10 +29,6 @@ request.onsuccess = (e) => {
   db = e.target.result;
   loadMessagesFromDB();
   sendQueuedMessages();
-};
-
-request.onerror = (e) => {
-  console.error("IndexedDB error:", e.target.error);
 };
 
 // -----------------
@@ -46,8 +42,6 @@ const socket = io();
 const form = document.getElementById("form");
 const input = document.getElementById("input");
 const messages = document.getElementById("messages");
-
-// Online users count
 const onlineCount = document.getElementById("onlineCount");
 
 // -----------------
@@ -57,7 +51,7 @@ const typingUsers = new Map();
 let typingTimeout;
 
 // -----------------
-// FORM SUBMIT
+// SEND MESSAGE
 // -----------------
 form.addEventListener("submit", (e) => {
   e.preventDefault();
@@ -66,100 +60,65 @@ form.addEventListener("submit", (e) => {
   if (!text) return;
 
   const messageData = {
-  id: crypto.randomUUID(), // 🔑 permanent ID
-  text,
-  username,
-  sender: socket.id,
-  timestamp: Date.now(),
-  status: "sent",
-  synced: socket.connected
-};
+    id: crypto.randomUUID(),
+    text,
+    username,
+    sender: socket.id,
+    timestamp: Date.now(),
+    status: "sent",
+    synced: socket.connected
+  };
 
-  // Stop typing when message is sent
   socket.emit("typing", false);
+
+  addMessage({ ...messageData, self: true });
+  saveMessageOffline(messageData);
 
   if (socket.connected) {
     socket.emit("chat message", messageData);
-  } else {
-    addMessage({ ...messageData, self: true });
-    saveMessageOffline(messageData);
   }
 
   input.value = "";
 });
 
 // -----------------
-// RECEIVE MESSAGES
+// RECEIVE MESSAGE
 // -----------------
 socket.on("chat message", (data) => {
-  // Remove typing indicator for sender
   removeTypingIndicator(data.sender);
 
-  // Prevent duplicates
-  if (
-    messages.querySelector(
-      `.message[data-timestamp='${data.timestamp}']`
-    )
-  ) return;
+  if (document.querySelector(`.message[data-id="${data.id}"]`)) return;
 
   addMessage(data);
-saveMessageOffline(data);
+  saveMessageOffline(data);
 
-// If this is NOT my message → mark as delivered & seen
-if (data.sender !== socket.id) {
-  socket.emit("delivered", data.timestamp);
-
-  // Seen when message arrives (WhatsApp-like)
-  socket.emit("seen", data.timestamp);
-}
-});
-socket.on("message-status", ({ timestamp, status }) => {
-  const msg = messages.querySelector(
-    `.message[data-timestamp='${timestamp}']`
-  );
-  if (!msg) return;
-
-  const statusEl = msg.querySelector(".status");
-  if (statusEl) {
-  statusEl.dataset.status = status;
+  // Mark delivered + seen (WhatsApp-style)
+  if (data.sender !== socket.id) {
+    socket.emit("delivered", data.id);
+    socket.emit("seen", data.id);
   }
 });
+
+// -----------------
+// MESSAGE STATUS UPDATE
+// -----------------
 socket.on("message-status", ({ id, status }) => {
   const el = document.querySelector(`.message[data-id="${id}"]`);
   if (!el) return;
 
   const statusEl = el.querySelector(".status");
-  if (statusEl) {
-    statusEl.textContent =
-      status === "seen" ? "✔✔" :
-      status === "delivered" ? "✔✔" :
-      "✔";
-  }
+  if (!statusEl) return;
+
+  statusEl.textContent =
+    status === "seen" ? "✔✔" :
+    status === "delivered" ? "✔✔" :
+    "✔";
 
   updateMessageStatusInDB(id, status);
 });
-function updateMessageStatusInDB(id, status) {
-  if (!db) return;
 
-  const tx = db.transaction("messages", "readwrite");
-  const store = tx.objectStore("messages");
-
-  store.openCursor().onsuccess = (e) => {
-    const cursor = e.target.result;
-    if (!cursor) return;
-
-    if (cursor.value.id === id) {
-      cursor.update({
-        ...cursor.value,
-        status
-      });
-      return;
-    }
-    cursor.continue();
-  };
-}
 // -----------------
-// TYPING EMIT (WhatsApp-style)
+// TYPING EMIT
 // -----------------
 input.addEventListener("input", () => {
   socket.emit("typing", true);
@@ -174,13 +133,11 @@ input.addEventListener("input", () => {
 // TYPING RECEIVE
 // -----------------
 socket.on("typing", (data) => {
-  if (!data || !data.username || data.username === username) return;
+  if (!data || data.username === username) return;
 
-  if (data.status) {
-    showTypingIndicator(data.id, data.username);
-  } else {
-    removeTypingIndicator(data.id);
-  }
+  data.status
+    ? showTypingIndicator(data.id, data.username)
+    : removeTypingIndicator(data.id);
 });
 
 // -----------------
@@ -194,48 +151,46 @@ socket.on("online-users", (count) => {
 // ADD MESSAGE TO DOM
 // -----------------
 function addMessage(data) {
-  const isSelf = data.sender === socket.id || data.self === true;
+  const isSelf = data.sender === socket.id || data.self;
 
   const div = document.createElement("div");
-  div.classList.add("message");
-  if (isSelf) div.classList.add("self");
-
+  div.className = `message ${isSelf ? "self" : ""}`;
   div.dataset.id = data.id;
 
   div.innerHTML = `
     <div class="message-header">
       <span class="username">${data.username}</span>
-      ${isSelf ? `<span class="status" data-status="sent"></span>` : ""}
+      ${isSelf ? `<span class="status">${renderStatus(data.status)}</span>` : ""}
       <button class="delete-btn">🗑️</button>
     </div>
     <div class="text">${data.text}</div>
-<div class="status">${data.status === "seen" ? "✔✔" : data.status === "delivered" ? "✔✔" : "✔"}</div>
   `;
 
-  const deleteBtn = div.querySelector(".delete-btn");
-  deleteBtn.addEventListener("click", () => {
-    const confirmDelete = confirm(
+  div.querySelector(".delete-btn").onclick = () => {
+    const delEveryone = confirm(
       "Delete for everyone?\nCancel = delete for me only."
     );
 
-    if (data.sender !== socket.id) {
-  socket.emit("seen", data.id);
-}
-
-    if (confirmDelete) {
-      socket.emit("delete message", data.timestamp);
+    if (delEveryone) {
+      socket.emit("delete message", { id: data.id, type: "everyone" });
+    } else {
+      removeMessageFromDOM(data.id);
+      deleteMessageFromDB(data.id);
     }
-
-    removeMessageFromDOM(data.timestamp);
-    deleteMessageFromDB(data.timestamp);
-  });
+  };
 
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
 }
 
+function renderStatus(status) {
+  if (status === "seen") return "✔✔";
+  if (status === "delivered") return "✔✔";
+  return "✔";
+}
+
 // -----------------
-// TYPING INDICATOR HELPERS
+// TYPING HELPERS
 // -----------------
 function showTypingIndicator(userId, name) {
   if (typingUsers.has(userId)) return;
@@ -243,12 +198,10 @@ function showTypingIndicator(userId, name) {
   const div = document.createElement("div");
   div.className = "message typing";
   div.dataset.typing = userId;
-
   div.innerHTML = `<div class="text">${name} is typing…</div>`;
 
   typingUsers.set(userId, div);
   messages.appendChild(div);
-  messages.scrollTop = messages.scrollHeight;
 }
 
 function removeTypingIndicator(userId) {
@@ -260,37 +213,25 @@ function removeTypingIndicator(userId) {
 }
 
 // -----------------
-// REMOVE MESSAGE FROM DOM
+// REMOVE MESSAGE
 // -----------------
-function removeMessageFromDOM(timestamp) {
-  const el = messages.querySelector(
-    `.message[data-timestamp='${timestamp}']`
-  );
-  if (el) el.remove();
+function removeMessageFromDOM(id) {
+  document.querySelector(`.message[data-id="${id}"]`)?.remove();
 }
 
-// -----------------
-// DELETE MESSAGE EVENT
-// -----------------
-socket.on("delete message", (timestamp) => {
-  removeMessageFromDOM(timestamp);
-  deleteMessageFromDB(timestamp);
+socket.on("delete message", (id) => {
+  removeMessageFromDOM(id);
+  deleteMessageFromDB(id);
 });
 
 // -----------------
-// INDEXED DB FUNCTIONS
+// INDEXED DB
 // -----------------
 function saveMessageOffline(msg) {
   if (!db) return;
 
   const tx = db.transaction("messages", "readwrite");
-  const store = tx.objectStore("messages");
-
-  store.put({
-  ...msg,
-  self: msg.sender === socket.id,
-  synced: msg.synced ?? false
-});
+  tx.objectStore("messages").put(msg);
 }
 
 function loadMessagesFromDB() {
@@ -308,19 +249,26 @@ function loadMessagesFromDB() {
   };
 }
 
-function deleteMessageFromDB(timestamp) {
+function updateMessageStatusInDB(id, status) {
   if (!db) return;
 
   const tx = db.transaction("messages", "readwrite");
   const store = tx.objectStore("messages");
 
-  store.openCursor().onsuccess = (e) => {
-    const cursor = e.target.result;
-    if (cursor.value.timestamp === timestamp) {
-      store.delete(cursor.key);
-    }
-    cursor.continue();
+  store.get(id).onsuccess = (e) => {
+    const msg = e.target.result;
+    if (!msg) return;
+
+    msg.status = status;
+    store.put(msg);
   };
+}
+
+function deleteMessageFromDB(id) {
+  if (!db) return;
+
+  const tx = db.transaction("messages", "readwrite");
+  tx.objectStore("messages").delete(id);
 }
 
 // -----------------
@@ -336,17 +284,14 @@ function sendQueuedMessages() {
     const cursor = e.target.result;
     if (!cursor) return;
 
-    if (cursor.value.sender === socket.id && !cursor.value.synced) {
-      socket.emit("chat message", cursor.value);
-
-      cursor.update({
-        ...cursor.value,
-        synced: true
-      });
+    const msg = cursor.value;
+    if (msg.sender === socket.id && !msg.synced) {
+      socket.emit("chat message", msg);
+      msg.synced = true;
+      store.put(msg);
     }
     cursor.continue();
   };
 }
-
 
 socket.on("connect", sendQueuedMessages);
