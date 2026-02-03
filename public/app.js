@@ -100,9 +100,27 @@ socket.on("chat message", (data) => {
   ) return;
 
   addMessage(data);
-  saveMessageOffline(data);
-});
+saveMessageOffline(data);
 
+// If this is NOT my message → mark as delivered & seen
+if (data.sender !== socket.id) {
+  socket.emit("delivered", data.timestamp);
+
+  // Seen when message arrives (WhatsApp-like)
+  socket.emit("seen", data.timestamp);
+}
+});
+socket.on("message-status", ({ timestamp, status }) => {
+  const msg = messages.querySelector(
+    `.message[data-timestamp='${timestamp}']`
+  );
+  if (!msg) return;
+
+  const statusEl = msg.querySelector(".status");
+  if (statusEl) {
+    statusEl.dataset.status = status;
+  }
+});
 // -----------------
 // TYPING EMIT (WhatsApp-style)
 // -----------------
@@ -150,6 +168,7 @@ function addMessage(data) {
   div.innerHTML = `
     <div class="message-header">
       <span class="username">${data.username}</span>
+      ${isSelf ? `<span class="status" data-status="sent"></span>` : ""}
       <button class="delete-btn">🗑️</button>
     </div>
     <div class="text">${data.text}</div>
