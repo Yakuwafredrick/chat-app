@@ -246,21 +246,22 @@ function loadMessagesFromDB() {
   index.openCursor().onsuccess = (e) => {
     const cursor = e.target.result;
     if (cursor) {
-      messagesArr.push(cursor.value);  // collect messages
+      messagesArr.push(cursor.value);
       cursor.continue();
     } else {
-      // Sort messages just in case
+      // Sort messages by timestamp
       messagesArr.sort((a, b) => a.timestamp - b.timestamp);
 
-      // Add messages to DOM with proper alignment
       messagesArr.forEach((msg) => {
+        // Mark messages from "current user" as self
+        const isSelf = msg.username === username;  // ✅ important change
+
         addMessage({ 
           ...msg, 
-          self: msg.sender === socket.id 
+          self: isSelf
         });
       });
 
-      // Scroll to bottom
       messages.scrollTop = messages.scrollHeight;
     }
   };
