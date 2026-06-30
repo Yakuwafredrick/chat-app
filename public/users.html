@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="msapplication-tap-highlight" content="no">
+  <title>Users — YakuwaZ Chat App</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <div class="chat-container">
+    <div class="chat-header">
+      <a href="/index.html" class="header-link">&larr; Chat</a>
+      <span>Users</span>
+    </div>
+
+    <div class="users-body">
+      <div id="users-status" class="status-banner hidden"></div>
+
+      <div class="user-section">
+        <div class="user-section-title">Online <span id="online-total" class="user-section-count"></span></div>
+        <div id="online-list" class="user-list"></div>
+      </div>
+
+      <div class="user-section">
+        <div class="user-section-title">Offline <span id="offline-total" class="user-section-count"></span></div>
+        <div id="offline-list" class="user-list"></div>
+      </div>
+
+      <p class="user-list-note">
+        This list only includes people who've chatted since the server last restarted.
+      </p>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="users.js"></script>
+</body>
+</html>
