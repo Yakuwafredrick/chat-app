@@ -41,7 +41,7 @@ self.addEventListener("fetch", (event) => {
   // Handle app shell (HTML, CSS, JS)
   if (
     urlsToCache.includes(new URL(req.url).pathname) ||
-    req.headers.get("accept").includes("text/html")
+    req.headers.get("accept")?.includes("text/html")
   ) {
     event.respondWith(
       caches.match(req).then((cachedRes) => {
