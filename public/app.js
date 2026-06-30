@@ -43,6 +43,39 @@ const form = document.getElementById("form");
 const input = document.getElementById("input");
 const messages = document.getElementById("messages");
 const onlineCount = document.getElementById("onlineCount");
+const banner = document.getElementById("status-banner");
+
+// -----------------
+// CONNECTION STATUS BANNER
+// -----------------
+let bannerHideTimer = null;
+
+function setBanner(state) {
+  clearTimeout(bannerHideTimer);
+
+  if (state === "online") {
+    banner.textContent = "Back online — syncing messages";
+    banner.className = "status-banner online";
+    bannerHideTimer = setTimeout(() => banner.classList.add("hidden"), 2000);
+    return;
+  }
+  if (state === "offline") {
+    banner.textContent = "No connection — messages will be queued";
+    banner.className = "status-banner offline";
+    return;
+  }
+  if (state === "reconnecting") {
+    banner.textContent = "Reconnecting…";
+    banner.className = "status-banner reconnecting";
+    return;
+  }
+  banner.className = "status-banner hidden";
+}
+
+if (!socket.connected) setBanner("offline");
+socket.on("disconnect", () => setBanner("offline"));
+socket.io.on("reconnect_attempt", () => setBanner("reconnecting"));
+socket.on("connect", () => setBanner("online"));
 
 // -----------------
 // TYPING STATE
@@ -59,26 +92,63 @@ form.addEventListener("submit", (e) => {
   const text = input.value.trim();
   if (!text) return;
 
-  const messageData = {
+  // The payload actually sent to the server — keep this minimal so we
+  // don't leak client-only bookkeeping fields (local/synced) to other
+  // users when this message gets broadcast back out.
+  const wirePayload = {
     id: crypto.randomUUID(),
     text,
     username,
     sender: socket.id,
-    timestamp: Date.now(),
-    status: "sent",
-    synced: socket.connected
+    timestamp: Date.now()
+  };
+
+  // The locally-persisted record. `local: true` marks this as "a
+  // message I composed and need delivered" — independent of
+  // socket.id, which changes (or becomes undefined) every time the
+  // socket disconnects/reconnects, so it can't be used to recognize
+  // our own queued messages later. `synced` only flips to true once
+  // the server actually confirms receipt (see the "message-status"
+  // handler below), not just because we called socket.emit().
+  const localRecord = {
+    ...wirePayload,
+    local: true,
+    synced: false,
+    status: "sent"
   };
 
   socket.emit("typing", false);
 
-  addMessage({ ...messageData, self: true });
-  saveMessageOffline(messageData);
+  addMessage({ ...localRecord, self: true });
+  saveMessageOffline(localRecord);
 
   if (socket.connected) {
-    socket.emit("chat message", messageData);
+    socket.emit("chat message", wirePayload);
   }
 
   input.value = "";
+});
+
+// -----------------
+// CATCH-UP ON RECONNECT
+// -----------------
+// The server sends the full chat history on every connection/
+// reconnection. This is what lets a device that was fully offline
+// (not just briefly disconnected) catch up on messages other people
+// sent while it had no connection at all.
+socket.on("chat history", (history) => {
+  if (!Array.isArray(history)) return;
+
+  history.forEach((msg) => {
+    if (!msg || !msg.id) return;
+    if (document.querySelector(`.message[data-id="${msg.id}"]`)) return; // already shown
+
+    const isSelf = msg.username === username;
+    addMessage({ ...msg, self: isSelf });
+    saveMessageOffline({ ...msg, local: isSelf, synced: true, status: msg.status || "sent" });
+  });
+
+  messages.scrollTop = messages.scrollHeight;
 });
 
 // -----------------
@@ -103,16 +173,18 @@ socket.on("chat message", (data) => {
 // MESSAGE STATUS UPDATE
 // -----------------
 socket.on("message-status", ({ id, status }) => {
+  inFlight.delete(id);
+
   const el = document.querySelector(`.message[data-id="${id}"]`);
-  if (!el) return;
-
-  const statusEl = el.querySelector(".status");
-  if (!statusEl) return;
-
-  statusEl.textContent =
-    status === "seen" ? "✔✔" :
-    status === "delivered" ? "✔✔" :
-    "✔";
+  if (el) {
+    const statusEl = el.querySelector(".status");
+    if (statusEl) {
+      statusEl.textContent =
+        status === "seen" ? "✔✔" :
+        status === "delivered" ? "✔✔" :
+        "✔";
+    }
+  }
 
   updateMessageStatusInDB(id, status);
 });
@@ -278,6 +350,7 @@ function updateMessageStatusInDB(id, status) {
     if (!msg) return;
 
     msg.status = status;
+    msg.synced = true; // server has confirmed receipt of this message
     store.put(msg);
   };
 }
@@ -292,6 +365,8 @@ function deleteMessageFromDB(id) {
 // -----------------
 // OFFLINE → ONLINE SYNC
 // -----------------
+const inFlight = new Set(); // ids currently awaiting a server ack, to avoid spamming resends
+
 function sendQueuedMessages() {
   if (!db || !socket.connected) return;
 
@@ -303,11 +378,27 @@ function sendQueuedMessages() {
     if (!cursor) return;
 
     const msg = cursor.value;
-    if (msg.sender === socket.id && !msg.synced) {
-      socket.emit("chat message", msg);
-      msg.synced = true;
-      store.put(msg);
+
+    // Only resend messages WE composed (local: true) that the server
+    // hasn't confirmed yet (synced: false). Do NOT key this off
+    // msg.sender === socket.id — socket.id changes on every
+    // reconnect (and is undefined while offline), so that check
+    // silently drops every message composed while disconnected.
+    if (msg.local && !msg.synced && !inFlight.has(msg.id)) {
+      inFlight.add(msg.id);
+      socket.emit("chat message", {
+        id: msg.id,
+        text: msg.text,
+        username: msg.username,
+        sender: socket.id,
+        timestamp: msg.timestamp
+      });
+
+      // Safety net: if no ack arrives within 10s, allow another retry
+      // on the next reconnect/flush instead of getting stuck silently.
+      setTimeout(() => inFlight.delete(msg.id), 10000);
     }
+
     cursor.continue();
   };
 }
