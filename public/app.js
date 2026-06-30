@@ -75,7 +75,13 @@ function setBanner(state) {
 if (!socket.connected) setBanner("offline");
 socket.on("disconnect", () => setBanner("offline"));
 socket.io.on("reconnect_attempt", () => setBanner("reconnecting"));
-socket.on("connect", () => setBanner("online"));
+socket.on("connect", () => {
+  setBanner("online");
+  // The server only knows sockets by a random default name until told
+  // otherwise. Re-send this on every connect/reconnect, since the
+  // server's per-socket state (and socket.id) resets each time.
+  socket.emit("set username", username);
+});
 
 // -----------------
 // TYPING STATE
