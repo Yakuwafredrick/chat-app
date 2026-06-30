@@ -257,8 +257,40 @@ body {
   }
 }
 /* =========================
-   MESSAGE STATUS (SEEN)
+   CONNECTION STATUS BANNER
 ========================= */
+.status-banner {
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  letter-spacing: 0.02em;
+  transition: max-height 0.2s ease, padding 0.2s ease, opacity 0.2s ease;
+  overflow: hidden;
+}
+
+.status-banner.hidden {
+  max-height: 0;
+  padding: 0 10px;
+  opacity: 0;
+}
+
+.status-banner.offline {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.status-banner.reconnecting {
+  background: #78350f;
+  color: #fde68a;
+}
+
+.status-banner.online {
+  background: #14532d;
+  color: #bbf7d0;
+}
+
 .status {
   font-size: 0.7rem;
   margin-left: 6px;
