@@ -1,9 +1,11 @@
-const CACHE_NAME = "yakuwaz-chat-cache-v3";
+const CACHE_NAME = "yakuwaz-chat-cache-v4";
 const urlsToCache = [
   "/",
   "/index.html",
   "/style.css",
   "/app.js",
+  "/users.html",
+  "/users.js",
   "/socket.io/socket.io.js"
 ];
 
