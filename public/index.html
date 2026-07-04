@@ -1,46 +1,108 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-    <meta name="format-detection" content="telephone=no">
-    <meta name="msapplication-tap-highlight" content="no">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="msapplication-tap-highlight" content="no">
   <title>YakuwaZ Chat App</title>
-<link rel="stylesheet" href="style.css" />
-  
+  <link rel="stylesheet" href="style.css" />
 </head>
-
 <body>
-  <div class="chat-container">
-    <div class="chat-header">
-      <span>YakuwaZ Chat App</span>
-      <a href="/users.html" class="header-link">Users</a>
+
+  <!-- ══════════ PROFILE SETUP MODAL ══════════ -->
+  <div id="profile-modal" class="profile-modal">
+    <div class="profile-modal-card">
+      <h2 class="profile-modal-title">Welcome to YakuwaZ 👋</h2>
+      <p class="profile-modal-sub">Set up your profile to start chatting</p>
+
+      <div class="avatar-preview-wrap">
+        <div class="avatar-lg" id="modal-avatar"><span id="modal-initials">?</span></div>
+      </div>
+
+      <div class="profile-fields">
+        <input id="fname-input" class="profile-field-input" type="text" placeholder="First name" maxlength="20" autocomplete="given-name" />
+        <input id="lname-input" class="profile-field-input" type="text" placeholder="Last name (optional)" maxlength="20" autocomplete="family-name" />
+      </div>
+
+      <button id="profile-save-btn" class="profile-save-btn">Start Chatting →</button>
+      <p id="profile-error" class="profile-error">Please enter at least a first name.</p>
     </div>
-
-    <div class="chat-body">
-  <div id="onlineCount" class="online-count"></div>
-  <div id="status-banner" class="status-banner hidden"></div>
-  <div id="messages" class="messages"></div>
-</div>
-
-    <form id="form" class="chat-input">
-      <input id="input" placeholder="Type a message…" autocomplete="off" />
-      <button type="submit">Send</button>
-    </form>
   </div>
 
-  <script src="/socket.io/socket.io.js"></script>
+  <!-- ══════════ MAIN APP SHELL ══════════ -->
+  <div class="app-shell hidden" id="app-shell">
 
+    <!-- ── SIDEBAR (contacts + group) ── -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-avatar" id="sidebar-avatar"></div>
+        <span class="sidebar-my-name" id="sidebar-my-name"></span>
+      </div>
+
+      <!-- Group chat entry -->
+      <div class="contact-item active" id="group-tab" data-conv="group">
+        <div class="contact-avatar group-avatar">💬</div>
+        <div class="contact-info">
+          <span class="contact-name">Group Chat</span>
+          <span class="contact-preview" id="group-preview">Everyone</span>
+        </div>
+        <span class="contact-badge hidden" id="group-badge"></span>
+      </div>
+
+      <div class="sidebar-divider">Direct Messages</div>
+
+      <div class="contacts-list" id="contacts-list">
+        <!-- filled by JS -->
+      </div>
+    </aside>
+
+    <!-- ── CHAT PANEL ── -->
+    <div class="chat-panel" id="chat-panel">
+
+      <!-- Chat header -->
+      <div class="chat-header" id="chat-header">
+        <button class="back-btn hidden" id="back-btn">&#8592;</button>
+        <div class="chat-header-avatar" id="chat-header-avatar"></div>
+        <div class="chat-header-info">
+          <span class="chat-header-name" id="chat-header-name">Group Chat</span>
+          <span class="chat-header-sub" id="chat-header-sub"></span>
+        </div>
+      </div>
+
+      <div class="status-banner hidden" id="status-banner"></div>
+
+      <!-- Messages -->
+      <div class="messages" id="messages"></div>
+
+      <!-- New messages popup pill -->
+      <div class="new-messages-popup hidden" id="new-messages-popup">
+        New messages <span>↓</span>
+      </div>
+
+      <!-- Reply preview bar -->
+      <!-- inserted by JS above the input when replying -->
+
+      <!-- Input -->
+      <form id="form" class="chat-input">
+        <input id="input" placeholder="Type a message…" autocomplete="off" />
+        <button type="submit">Send</button>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- Welcome toast -->
+  <div id="welcome-toast" class="welcome-toast hidden"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
   <script>
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").then(
-      (reg) => console.log("Service Worker registered", reg.scope),
-      (err) => console.log("Service Worker registration failed", err)
-    );
-  });
-}
-</script>
-<script src="app.js"></script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      });
+    }
+  </script>
+  <script src="app.js"></script>
 </body>
 </html>
