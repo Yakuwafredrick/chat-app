@@ -214,13 +214,8 @@ body {
    WHATSAPP-STYLE BUBBLE TAILS
 ========================= */
 
-/* Base position for tail */
-.message {
-  position: relative;
-}
-
 /* RECEIVED (LEFT) TAIL */
-.message::before {
+.bubble-inner::before {
   content: "";
   position: absolute;
   left: -6px;
@@ -233,7 +228,7 @@ body {
 }
 
 /* SENT (RIGHT) TAIL */
-.message.self::before {
+.message.self .bubble-inner::before {
   left: auto;
   right: -6px;
   background: #2563eb;
@@ -349,8 +344,167 @@ body {
 }
 
 /* =========================
-   ANIMATIONS
+   SWIPE TO REPLY
 ========================= */
+
+/* The outer .message is the touch target and overflow clip.
+   It must not clip the reply icon, which sits to the left. */
+.message {
+  overflow: visible;
+}
+
+/* bubble-inner is what actually slides on swipe */
+.bubble-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+  will-change: transform;
+  /* inherits all bubble colours from .message */
+}
+
+/* Reply arrow icon — sits behind/left of the bubble */
+.reply-icon {
+  position: absolute;
+  left: -36px;
+  top: 50%;
+  transform: translateY(-50%) scale(0.6);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #334155;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+  color: #e2e8f0;
+  /* transitions set dynamically in JS */
+}
+
+.message.self .reply-icon {
+  left: auto;
+  right: -36px;
+}
+
+/* Quoted message preview inside bubble */
+.reply-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-left: 3px solid #60a5fa;
+  margin-bottom: 2px;
+}
+
+.message.self .reply-quote {
+  border-left-color: rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.reply-quote-name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #93c5fd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message.self .reply-quote-name {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.reply-quote-text {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.message.self .reply-quote-text {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* =========================
+   REPLY BAR (above input)
+========================= */
+.reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #0f172a;
+  border-top: 1px solid #1e293b;
+  animation: slideUp 0.18s ease;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.reply-bar-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.reply-bar-accent {
+  width: 3px;
+  min-height: 32px;
+  border-radius: 2px;
+  background: #3b82f6;
+  flex-shrink: 0;
+}
+
+.reply-bar-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.reply-bar-name {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #60a5fa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reply-bar-preview {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reply-bar-cancel {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  line-height: 1;
+}
+
+.reply-bar-cancel:active {
+  background: #1e293b;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
