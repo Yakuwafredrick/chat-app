@@ -106,16 +106,10 @@ form.addEventListener("submit", (e) => {
     text,
     username,
     sender: socket.id,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    ...(replyingTo ? { replyTo: replyingTo } : {})
   };
 
-  // The locally-persisted record. `local: true` marks this as "a
-  // message I composed and need delivered" — independent of
-  // socket.id, which changes (or becomes undefined) every time the
-  // socket disconnects/reconnects, so it can't be used to recognize
-  // our own queued messages later. `synced` only flips to true once
-  // the server actually confirms receipt (see the "message-status"
-  // handler below), not just because we called socket.emit().
   const localRecord = {
     ...wirePayload,
     local: true,
@@ -124,6 +118,7 @@ form.addEventListener("submit", (e) => {
   };
 
   socket.emit("typing", false);
+  clearReply();
 
   addMessage({ ...localRecord, self: true });
   saveMessageOffline(localRecord);
@@ -226,6 +221,45 @@ socket.on("online-users", (count) => {
 });
 
 // -----------------
+// REPLY STATE
+// -----------------
+let replyingTo = null; // { id, username, text }
+
+function setReply(data) {
+  replyingTo = { id: data.id, username: data.username, text: data.text };
+
+  let bar = document.getElementById("reply-bar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "reply-bar";
+    bar.className = "reply-bar";
+    // Insert between status-banner and messages
+    const chatBody = document.querySelector(".chat-body");
+    chatBody.insertBefore(bar, document.getElementById("messages"));
+  }
+
+  bar.innerHTML = `
+    <div class="reply-bar-content">
+      <div class="reply-bar-accent"></div>
+      <div class="reply-bar-text">
+        <span class="reply-bar-name">${data.username}</span>
+        <span class="reply-bar-preview">${data.text.length > 60 ? data.text.slice(0, 60) + "…" : data.text}</span>
+      </div>
+    </div>
+    <button class="reply-bar-cancel" aria-label="Cancel reply">✕</button>
+  `;
+
+  bar.querySelector(".reply-bar-cancel").onclick = clearReply;
+  input.focus();
+}
+
+function clearReply() {
+  replyingTo = null;
+  const bar = document.getElementById("reply-bar");
+  if (bar) bar.remove();
+}
+
+// -----------------
 // ADD MESSAGE TO DOM
 // -----------------
 function addMessage(data) {
@@ -235,20 +269,31 @@ function addMessage(data) {
   div.className = `message ${isSelf ? "self" : ""}`;
   div.dataset.id = data.id;
 
+  // Reply preview (quoted message inside bubble)
+  const replyHTML = data.replyTo
+    ? `<div class="reply-quote">
+        <span class="reply-quote-name">${data.replyTo.username}</span>
+        <span class="reply-quote-text">${data.replyTo.text.length > 60 ? data.replyTo.text.slice(0, 60) + "…" : data.replyTo.text}</span>
+       </div>`
+    : "";
+
   div.innerHTML = `
-    <div class="message-header">
-      <span class="username">${data.username}</span>
-      ${isSelf ? `<span class="status">${renderStatus(data.status)}</span>` : ""}
-      <button class="delete-btn">🗑️</button>
+    <div class="reply-icon" aria-hidden="true">↩</div>
+    <div class="bubble-inner">
+      <div class="message-header">
+        <span class="username">${data.username}</span>
+        ${isSelf ? `<span class="status">${renderStatus(data.status)}</span>` : ""}
+        <button class="delete-btn">🗑️</button>
+      </div>
+      ${replyHTML}
+      <div class="text">${data.text}</div>
     </div>
-    <div class="text">${data.text}</div>
   `;
 
   div.querySelector(".delete-btn").onclick = () => {
     const delEveryone = confirm(
       "Delete for everyone?\nCancel = delete for me only."
     );
-
     if (delEveryone) {
       socket.emit("delete message", { id: data.id, type: "everyone" });
     } else {
@@ -257,8 +302,95 @@ function addMessage(data) {
     }
   };
 
+  attachSwipeToReply(div, data);
+
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
+}
+
+// -----------------
+// SWIPE TO REPLY
+// -----------------
+const SWIPE_THRESHOLD = 65; // px to trigger reply
+const SWIPE_MAX = 90;       // max translate before hard resistance
+
+function attachSwipeToReply(msgEl, data) {
+  const inner = msgEl.querySelector(".bubble-inner");
+  const icon  = msgEl.querySelector(".reply-icon");
+  const isSelf = msgEl.classList.contains("self");
+
+  let startX = 0, startY = 0, currentX = 0;
+  let tracking = false, triggered = false;
+
+  function onTouchStart(e) {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    currentX = 0;
+    tracking = true;
+    triggered = false;
+    inner.style.transition = "none";
+    icon.style.transition  = "none";
+  }
+
+  function onTouchMove(e) {
+    if (!tracking) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+
+    // Only track horizontal swipes; bail if it's mainly vertical
+    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dx) < 10) {
+      tracking = false;
+      return;
+    }
+
+    // Right-swipe only for received; left-swipe only for self (just like WhatsApp)
+    // Actually both directions for simplicity — right swipe on self, right swipe on received
+    // WhatsApp uses right-swipe for all. Let's do the same.
+    if (dx < 0) return; // ignore left swipes entirely
+
+    e.preventDefault(); // prevent scroll while swiping a bubble
+
+    // Rubber-band resistance past SWIPE_THRESHOLD
+    let translate = dx;
+    if (dx > SWIPE_THRESHOLD) {
+      translate = SWIPE_THRESHOLD + (dx - SWIPE_THRESHOLD) * 0.2;
+    }
+    translate = Math.min(translate, SWIPE_MAX);
+
+    currentX = translate;
+
+    inner.style.transform = `translateX(${translate}px)`;
+
+    // Fade + scale the reply icon in as the user pulls
+    const progress = Math.min(translate / SWIPE_THRESHOLD, 1);
+    icon.style.opacity = progress;
+    icon.style.transform = `scale(${0.6 + 0.4 * progress})`;
+
+    if (!triggered && translate >= SWIPE_THRESHOLD) {
+      triggered = true;
+      // Haptic feedback on devices that support it
+      if (navigator.vibrate) navigator.vibrate(30);
+    }
+  }
+
+  function onTouchEnd() {
+    if (!tracking) return;
+    tracking = false;
+
+    // Spring back
+    inner.style.transition = "transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)";
+    icon.style.transition  = "opacity 0.25s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)";
+    inner.style.transform  = "translateX(0)";
+    icon.style.opacity     = "0";
+    icon.style.transform   = "scale(0.6)";
+
+    if (triggered) setReply(data);
+  }
+
+  msgEl.addEventListener("touchstart", onTouchStart, { passive: true });
+  msgEl.addEventListener("touchmove",  onTouchMove,  { passive: false });
+  msgEl.addEventListener("touchend",   onTouchEnd,   { passive: true });
 }
 
 function renderStatus(status) {
