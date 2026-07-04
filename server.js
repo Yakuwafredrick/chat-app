@@ -7,146 +7,229 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Serve static files
 app.use(express.static(path.join(__dirname, "public")));
 
-// In-memory chat history
-let chatHistory = []; // {id, text, sender, username, timestamp}
-let onlineUsers = new Map(); // socket.id -> username
+// ─────────────────────────────────────────
+// IN-MEMORY STORE
+// ─────────────────────────────────────────
+// Group chat history (shared room)
+let groupHistory = [];
 
-// Presence registry: tracks every username seen this server session,
-// online status, and when they were last seen. This resets whenever
-// the server restarts/redeploys, same as chatHistory above — there's
-// no database backing this.
-let userRegistry = new Map(); // username -> { online: boolean, lastSeen: number }
-let usernameSocketCounts = new Map(); // username -> number of sockets currently using it
+// Private conversations: key = sortedPair("alice","bob") → messages[]
+const privateHistory = new Map();
 
-// Utility to broadcast online user count
-function updateOnlineCount() {
-  io.emit("online-users", onlineUsers.size);
-}
+// Presence registry
+// username → { online, lastSeen, displayName, avatarColor, initials }
+const userRegistry = new Map();
 
-function getUserListArray() {
-  return Array.from(userRegistry.entries()).map(([username, info]) => ({
-    username,
-    online: info.online,
-    lastSeen: info.lastSeen
-  }));
+// socket.id → username
+const socketToUser = new Map();
+
+// username → Set of socket.ids (multi-tab / multi-device)
+const userSockets = new Map();
+
+// ─────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────
+function convKey(a, b) {
+  return [a, b].sort().join("__vs__");
 }
 
 function broadcastUserList() {
-  io.emit("user-list", getUserListArray());
+  const list = Array.from(userRegistry.entries()).map(([username, info]) => ({
+    username,
+    displayName: info.displayName,
+    avatarColor: info.avatarColor,
+    initials: info.initials,
+    online: info.online,
+    lastSeen: info.lastSeen
+  }));
+  io.emit("user-list", list);
 }
 
-function markUserOnline(username) {
-  usernameSocketCounts.set(username, (usernameSocketCounts.get(username) || 0) + 1);
-  userRegistry.set(username, { online: true, lastSeen: Date.now() });
+function markOnline(username) {
+  const existing = userRegistry.get(username) || {};
+  userRegistry.set(username, { ...existing, online: true, lastSeen: Date.now() });
   broadcastUserList();
 }
 
-function markUserOffline(username) {
-  const count = (usernameSocketCounts.get(username) || 1) - 1;
-  if (count <= 0) {
-    usernameSocketCounts.delete(username);
-    const existing = userRegistry.get(username) || {};
-    userRegistry.set(username, { ...existing, online: false, lastSeen: Date.now() });
-    broadcastUserList();
-  } else {
-    usernameSocketCounts.set(username, count);
-  }
+function markOffline(username) {
+  const sockets = userSockets.get(username);
+  if (sockets && sockets.size > 0) return; // still connected on another tab
+  const existing = userRegistry.get(username) || {};
+  userRegistry.set(username, { ...existing, online: false, lastSeen: Date.now() });
+  broadcastUserList();
 }
 
+// ─────────────────────────────────────────
+// SOCKET EVENTS
+// ─────────────────────────────────────────
 io.on("connection", (socket) => {
-  console.log("A user connected:", socket.id);
+  // Send current state immediately to the joining socket
+  socket.emit("group history", groupHistory);
+  socket.emit("user-list", Array.from(userRegistry.entries()).map(([username, info]) => ({
+    username, ...info
+  })));
 
-  // Assign default username (replaced once the client sends its real
-  // chosen username via "set username", which app.js does on every
-  // connect/reconnect). We deliberately don't register this default
-  // name in the presence registry — clients replace it almost
-  // instantly, and doing so would leave a trail of disposable
-  // "User-XXX" ghosts cluttering the offline list.
-  const defaultUsername = "User-" + Math.floor(Math.random() * 1000);
-  onlineUsers.set(socket.id, defaultUsername);
+  // ── Register user profile ──────────────────────────
+  socket.on("register", ({ username, displayName, avatarColor, initials }) => {
+    if (!username) return;
 
-  // Send chat history
-  socket.emit("chat history", chatHistory);
-
-  // Send the current presence snapshot immediately — a socket that
-  // only visits the Users page (and never sends "set username") would
-  // otherwise never see anything until someone else's status changes.
-  socket.emit("user-list", getUserListArray());
-
-  updateOnlineCount();
-
-  // Set username
-  socket.on("set username", (username) => {
-    if (!username || typeof username !== "string") return;
-    const oldUsername = onlineUsers.get(socket.id);
-    if (oldUsername === username) return;
-
-    onlineUsers.set(socket.id, username);
-    if (oldUsername && usernameSocketCounts.has(oldUsername)) {
-      markUserOffline(oldUsername);
+    const old = socketToUser.get(socket.id);
+    if (old && old !== username) {
+      // remove old socket mapping
+      const set = userSockets.get(old);
+      if (set) { set.delete(socket.id); if (set.size === 0) markOffline(old); }
     }
-    markUserOnline(username);
-    updateOnlineCount();
+
+    socketToUser.set(socket.id, username);
+
+    if (!userSockets.has(username)) userSockets.set(username, new Set());
+    userSockets.get(username).add(socket.id);
+
+    // Merge / set profile info
+    const existing = userRegistry.get(username) || {};
+    userRegistry.set(username, {
+      ...existing,
+      displayName: displayName || existing.displayName || username,
+      avatarColor: avatarColor || existing.avatarColor || "#3b82f6",
+      initials: initials || existing.initials || username[0].toUpperCase(),
+      online: true,
+      lastSeen: Date.now()
+    });
+
+    markOnline(username);
+    socket.emit("registered", { username });
   });
 
-  // Chat message
-  socket.on("chat message", (msg) => {
-  chatHistory.push(msg);
-  io.emit("chat message", msg);
+  // ── Group chat message ─────────────────────────────
+  socket.on("group message", (msg) => {
+    groupHistory.push(msg);
+    if (groupHistory.length > 500) groupHistory = groupHistory.slice(-500);
+    io.emit("group message", msg);
 
-  socket.emit("message-status", {
-    id: msg.id,
-    status: "delivered"
+    socket.emit("message-status", { id: msg.id, status: "delivered" });
   });
-});
 
-  // ✅ Typing indicator (FIXED)
-  socket.on("typing", (status) => {
-    socket.broadcast.emit("typing", {
-      id: socket.id,
-      username: onlineUsers.get(socket.id),
-      status
+  // ── Private message ────────────────────────────────
+  socket.on("private message", (msg) => {
+    const { to, from } = msg;
+    if (!to || !from) return;
+
+    const key = convKey(from, to);
+    if (!privateHistory.has(key)) privateHistory.set(key, []);
+    const hist = privateHistory.get(key);
+    hist.push(msg);
+    if (hist.length > 500) hist.splice(0, hist.length - 500);
+
+    // Send to all sockets of the recipient
+    const recipientSockets = userSockets.get(to);
+    if (recipientSockets) {
+      recipientSockets.forEach((sid) => {
+        io.to(sid).emit("private message", msg);
+      });
+    }
+
+    // Echo back to all sender's sockets (multi-tab)
+    const senderSockets = userSockets.get(from);
+    if (senderSockets) {
+      senderSockets.forEach((sid) => {
+        if (sid !== socket.id) io.to(sid).emit("private message", msg);
+      });
+    }
+
+    socket.emit("message-status", { id: msg.id, status: "delivered" });
+  });
+
+  // ── Request private history ────────────────────────
+  socket.on("get private history", ({ with: peer }) => {
+    const me = socketToUser.get(socket.id);
+    if (!me || !peer) return;
+    const key = convKey(me, peer);
+    socket.emit("private history", {
+      peer,
+      messages: privateHistory.get(key) || []
     });
   });
-// Message delivered
-socket.on("delivered", (id) => {
-  socket.broadcast.emit("message-status", {
-    id,
-    status: "delivered"
-  });
-});
 
-socket.on("seen", (id) => {
-  socket.broadcast.emit("message-status", {
-    id,
-    status: "seen"
-  });
-});
-  // Delete message
-  socket.on("delete message", ({ id, type }) => {
-    if (type === "me") {
-      socket.emit("delete message", id);
-    } else if (type === "everyone") {
-      chatHistory = chatHistory.filter((m) => m.id !== id);
-      io.emit("delete message", id);
+  // ── Typing indicator ───────────────────────────────
+  socket.on("typing", ({ room, to, status }) => {
+    const username = socketToUser.get(socket.id);
+    if (!username) return;
+
+    if (room === "group") {
+      socket.broadcast.emit("typing", { room: "group", username, status });
+    } else if (to) {
+      const recipientSockets = userSockets.get(to);
+      if (recipientSockets) {
+        recipientSockets.forEach((sid) => {
+          io.to(sid).emit("typing", { room: "private", from: username, status });
+        });
+      }
     }
   });
 
+  // ── Message status (seen/delivered) ───────────────
+  socket.on("delivered", ({ id, to }) => {
+    const senderSockets = userSockets.get(to);
+    if (senderSockets) {
+      senderSockets.forEach((sid) => {
+        io.to(sid).emit("message-status", { id, status: "delivered" });
+      });
+    }
+  });
+
+  socket.on("seen", ({ id, to }) => {
+    const senderSockets = userSockets.get(to);
+    if (senderSockets) {
+      senderSockets.forEach((sid) => {
+        io.to(sid).emit("message-status", { id, status: "seen" });
+      });
+    }
+  });
+
+  // ── Delete message ─────────────────────────────────
+  socket.on("delete message", ({ id, type, room, peer }) => {
+    if (room === "group") {
+      if (type === "everyone") {
+        groupHistory = groupHistory.filter((m) => m.id !== id);
+        io.emit("delete message", { id, room: "group" });
+      } else {
+        socket.emit("delete message", { id, room: "group" });
+      }
+    } else if (peer) {
+      const from = socketToUser.get(socket.id);
+      const key = convKey(from, peer);
+      if (type === "everyone") {
+        const hist = privateHistory.get(key) || [];
+        privateHistory.set(key, hist.filter((m) => m.id !== id));
+        // notify both sides
+        [from, peer].forEach((u) => {
+          const socks = userSockets.get(u);
+          if (socks) socks.forEach((sid) => io.to(sid).emit("delete message", { id, room: "private", peer }));
+        });
+      } else {
+        socket.emit("delete message", { id, room: "private", peer });
+      }
+    }
+  });
+
+  // ── Disconnect ─────────────────────────────────────
   socket.on("disconnect", () => {
-    const username = onlineUsers.get(socket.id);
-    onlineUsers.delete(socket.id);
-    if (username && usernameSocketCounts.has(username)) {
-      markUserOffline(username);
+    const username = socketToUser.get(socket.id);
+    socketToUser.delete(socket.id);
+    if (username) {
+      const socks = userSockets.get(username);
+      if (socks) {
+        socks.delete(socket.id);
+        if (socks.size === 0) {
+          userSockets.delete(username);
+          markOffline(username);
+        }
+      }
     }
-    updateOnlineCount();
-    console.log("A user disconnected:", socket.id);
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`YakuwaZ running on port ${PORT}`));
