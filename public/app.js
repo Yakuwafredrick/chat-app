@@ -1,11 +1,9 @@
 // ══════════════════════════════════════════════════════
-// YakuwaZ Chat App — app.js
-// Supports: group chat, private (1-to-1) chat,
-//           offline queue, swipe-to-reply, presence list
+// YakuwaZ Chat App — app.js  (v6 — persistent accounts)
 // ══════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────
-// AVATAR COLOUR PALETTE
+// AVATAR COLOURS
 // ─────────────────────────────────────────
 const AVATAR_COLORS = [
   "#3b82f6","#8b5cf6","#ec4899","#f59e0b",
@@ -27,65 +25,195 @@ function avatarHTML(initials, color, size = "sm") {
 }
 
 // ─────────────────────────────────────────
-// PROFILE — load or show setup modal
+// SESSION  — token lives in localStorage so
+// it survives "clear site data" prompts that
+// only wipe cookies; user re-logs in if gone
 // ─────────────────────────────────────────
+const TOKEN_KEY = "yakuwaz-token";
+
+function getToken()       { return localStorage.getItem(TOKEN_KEY); }
+function setToken(t)      { localStorage.setItem(TOKEN_KEY, t); }
+function clearToken()     { localStorage.removeItem(TOKEN_KEY); }
+
 let profile = null; // { username, displayName, initials, avatarColor }
 
-function loadProfile() {
-  const stored = localStorage.getItem("yakuwaz-profile");
-  if (stored) {
-    try { profile = JSON.parse(stored); } catch (_) {}
-  }
-}
+// ─────────────────────────────────────────
+// DOM — AUTH SCREEN
+// ─────────────────────────────────────────
+const authScreen   = document.getElementById("auth-screen");
+const appShell     = document.getElementById("app-shell");
 
-function saveProfile(p) {
-  profile = p;
-  localStorage.setItem("yakuwaz-profile", JSON.stringify(p));
-}
-
-// DOM — profile modal
-const profileModal  = document.getElementById("profile-modal");
-const fnameInput    = document.getElementById("fname-input");
-const lnameInput    = document.getElementById("lname-input");
-const modalAvatar   = document.getElementById("modal-avatar");
-const modalInitials = document.getElementById("modal-initials");
-const profileSaveBtn = document.getElementById("profile-save-btn");
-const profileError  = document.getElementById("profile-error");
-
-function updateModalPreview() {
-  const fn = fnameInput.value.trim();
-  const ln = lnameInput.value.trim();
-  if (!fn) { modalInitials.textContent = "?"; modalAvatar.style.background = "#334155"; return; }
-  const initials = makeInitials(fn, ln);
-  const color = colorForName(fn + ln);
-  modalInitials.textContent = initials;
-  modalAvatar.style.background = color;
-}
-
-fnameInput.addEventListener("input", updateModalPreview);
-lnameInput.addEventListener("input", updateModalPreview);
-
-profileSaveBtn.addEventListener("click", () => {
-  const fn = fnameInput.value.trim();
-  const ln = lnameInput.value.trim();
-  if (!fn) { profileError.classList.remove("hidden"); return; }
-  profileError.classList.add("hidden");
-
-  const displayName = ln ? `${fn} ${ln}` : fn;
-  const username = displayName.toLowerCase().replace(/\s+/g, "_") + "_" + Math.floor(Math.random() * 1000);
-  const initials = makeInitials(fn, ln);
-  const avatarColor = colorForName(fn + ln);
-
-  saveProfile({ username, displayName, initials, avatarColor });
-  profileModal.classList.add("hidden");
-  boot();
+// Tabs
+document.querySelectorAll(".auth-tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".auth-tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    const target = tab.dataset.tab;
+    document.getElementById("login-form").classList.toggle("hidden", target !== "login");
+    document.getElementById("signup-form").classList.toggle("hidden", target !== "signup");
+    clearAuthErrors();
+  });
 });
 
+// Password toggle (show/hide)
+document.querySelectorAll(".pw-toggle").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const inp = document.getElementById(btn.dataset.target);
+    inp.type = inp.type === "password" ? "text" : "password";
+    btn.textContent = inp.type === "password" ? "👁" : "🙈";
+  });
+});
+
+// Signup avatar preview
+const signupFname   = document.getElementById("signup-fname");
+const signupLname   = document.getElementById("signup-lname");
+const signupAvatarP = document.getElementById("signup-avatar-preview");
+const signupInitP   = document.getElementById("signup-initials-preview");
+
+function updateSignupPreview() {
+  const fn = signupFname.value.trim();
+  const ln = signupLname.value.trim();
+  if (!fn) { signupInitP.textContent = "?"; signupAvatarP.style.background = "#334155"; return; }
+  const initials = makeInitials(fn, ln);
+  signupInitP.textContent = initials;
+  signupAvatarP.style.background = colorForName(fn + ln);
+}
+signupFname.addEventListener("input", updateSignupPreview);
+signupLname.addEventListener("input", updateSignupPreview);
+
+function clearAuthErrors() {
+  ["login-error","signup-error"].forEach(id => {
+    const el = document.getElementById(id);
+    el.textContent = "";
+    el.classList.add("hidden");
+  });
+}
+
+function showAuthError(formId, msg) {
+  const el = document.getElementById(formId + "-error");
+  el.textContent = msg;
+  el.classList.remove("hidden");
+}
+
+function setAuthLoading(btnId, loading) {
+  const btn = document.getElementById(btnId);
+  btn.disabled = loading;
+  btn.textContent = loading
+    ? (btnId === "login-btn" ? "Logging in…" : "Creating account…")
+    : (btnId === "login-btn" ? "Log In" : "Create Account");
+}
+
+// ── Log In ──
+document.getElementById("login-btn").addEventListener("click", async () => {
+  const username = document.getElementById("login-username").value.trim();
+  const password = document.getElementById("login-password").value;
+  if (!username || !password) return showAuthError("login", "Please fill in all fields.");
+
+  setAuthLoading("login-btn", true);
+  clearAuthErrors();
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!res.ok) { showAuthError("login", data.error || "Login failed."); return; }
+    setToken(data.token);
+    profile = data.profile;
+    authScreen.classList.add("hidden");
+    boot();
+  } catch (_) {
+    showAuthError("login", "Network error — please try again.");
+  } finally {
+    setAuthLoading("login-btn", false);
+  }
+});
+
+// Allow Enter key on login fields
+["login-username","login-password"].forEach(id => {
+  document.getElementById(id).addEventListener("keydown", e => {
+    if (e.key === "Enter") document.getElementById("login-btn").click();
+  });
+});
+
+// ── Sign Up ──
+document.getElementById("signup-btn").addEventListener("click", async () => {
+  const fname    = signupFname.value.trim();
+  const lname    = signupLname.value.trim();
+  const username = document.getElementById("signup-username").value.trim();
+  const password = document.getElementById("signup-password").value;
+
+  if (!fname) return showAuthError("signup", "Please enter your first name.");
+  if (!username) return showAuthError("signup", "Please choose a username.");
+  if (!password) return showAuthError("signup", "Please enter a password.");
+
+  const displayName = lname ? `${fname} ${lname}` : fname;
+  const initials    = makeInitials(fname, lname);
+  const avatarColor = colorForName(fname + lname);
+
+  setAuthLoading("signup-btn", true);
+  clearAuthErrors();
+  try {
+    const res = await fetch("/api/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, displayName, initials, avatarColor })
+    });
+    const data = await res.json();
+    if (!res.ok) { showAuthError("signup", data.error || "Sign up failed."); return; }
+    setToken(data.token);
+    profile = data.profile;
+    authScreen.classList.add("hidden");
+    boot();
+  } catch (_) {
+    showAuthError("signup", "Network error — please try again.");
+  } finally {
+    setAuthLoading("signup-btn", false);
+  }
+});
+
+// ── Log Out ──
+document.getElementById("logout-btn").addEventListener("click", () => {
+  if (!confirm("Log out?")) return;
+  clearToken();
+  profile = null;
+  location.reload();
+});
+
+// ── Delete Account ──
+document.getElementById("delete-account-btn").addEventListener("click", async () => {
+  if (!confirm("⚠️ Delete your account permanently?\n\nThis cannot be undone.")) return;
+  if (!confirm("Are you absolutely sure? All your data will be erased.")) return;
+
+  try {
+    const res = await fetch("/api/delete-account", {
+      method: "DELETE",
+      headers: { "Authorization": "Bearer " + getToken() }
+    });
+    if (!res.ok) { alert("Could not delete account. Try again."); return; }
+    clearToken();
+    profile = null;
+    alert("Account deleted. Goodbye!");
+    location.reload();
+  } catch (_) {
+    alert("Network error — please try again.");
+  }
+});
+
+// ── Account menu toggle ──
+const sidebarMenuBtn = document.getElementById("sidebar-menu-btn");
+const accountMenu    = document.getElementById("account-menu");
+
+sidebarMenuBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  accountMenu.classList.toggle("hidden");
+});
+document.addEventListener("click", () => accountMenu.classList.add("hidden"));
+
 // ─────────────────────────────────────────
-// INDEXED DB
+// INDEXED DB  (keyed by convId)
 // ─────────────────────────────────────────
-// DB version 2: messages store gains a `convId` index
-// so we can load history per conversation.
 let db;
 
 function openDB() {
@@ -98,7 +226,6 @@ function openDB() {
         s.createIndex("convId", "convId");
         s.createIndex("timestamp", "timestamp");
       } else {
-        // Add convId index if upgrading from v1
         const s = e.target.transaction.objectStore("messages");
         if (!s.indexNames.contains("convId")) s.createIndex("convId", "convId");
       }
@@ -114,89 +241,84 @@ function dbPut(record) {
     const tx = db.transaction("messages", "readwrite");
     tx.objectStore("messages").put(record);
     tx.oncomplete = resolve;
-    tx.onerror = (e) => reject(e.target.error);
+    tx.onerror    = (e) => reject(e.target.error);
   });
 }
 
 function dbGetByConv(convId) {
   if (!db) return Promise.resolve([]);
   return new Promise((resolve, reject) => {
-    const tx = db.transaction("messages", "readonly");
-    const index = tx.objectStore("messages").index("convId");
-    const req = index.getAll(convId);
+    const tx  = db.transaction("messages", "readonly");
+    const req = tx.objectStore("messages").index("convId").getAll(convId);
     req.onsuccess = () => resolve((req.result || []).sort((a, b) => a.timestamp - b.timestamp));
-    req.onerror = (e) => reject(e.target.error);
+    req.onerror   = (e) => reject(e.target.error);
   });
 }
 
 function dbGetAllPending() {
   if (!db) return Promise.resolve([]);
   return new Promise((resolve, reject) => {
-    const tx = db.transaction("messages", "readonly");
-    const req = tx.objectStore("messages").getAll();
-    req.onsuccess = () => resolve((req.result || []).filter(m => m.local && !m.synced));
-    req.onerror = (e) => reject(e.target.error);
+    const req = db.transaction("messages","readonly").objectStore("messages").getAll();
+    req.onsuccess = () => resolve((req.result||[]).filter(m => m.local && !m.synced));
+    req.onerror   = (e) => reject(e.target.error);
   });
 }
 
 function dbUpdateStatus(id, status) {
   if (!db) return;
-  const tx = db.transaction("messages", "readwrite");
+  const tx    = db.transaction("messages","readwrite");
   const store = tx.objectStore("messages");
   store.get(id).onsuccess = (e) => {
     const msg = e.target.result;
     if (!msg) return;
-    msg.status = status;
-    msg.synced = true;
+    msg.status = status; msg.synced = true;
     store.put(msg);
   };
 }
 
 function dbDelete(id) {
   if (!db) return;
-  const tx = db.transaction("messages", "readwrite");
-  tx.objectStore("messages").delete(id);
+  db.transaction("messages","readwrite").objectStore("messages").delete(id);
 }
 
 // ─────────────────────────────────────────
-// SOCKET
+// SOCKET  — pass JWT in handshake
 // ─────────────────────────────────────────
-const socket = io({ reconnection: true, reconnectionDelayMax: 10000 });
+let socket; // created in boot() after we have a token
 
 // ─────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────
-let currentConv   = "group"; // "group" | username string for DMs
-let userList      = [];       // latest user-list from server
-const unreadMap   = new Map(); // convId → count
+let currentConv = "group";
+let userList    = [];
+const unreadMap = new Map();
 
 // ─────────────────────────────────────────
-// DOM REFS
+// DOM — APP
 // ─────────────────────────────────────────
-const appShell      = document.getElementById("app-shell");
-const sidebar       = document.getElementById("sidebar");
-const sidebarAvatar = document.getElementById("sidebar-avatar");
-const sidebarMyName = document.getElementById("sidebar-my-name");
-const groupTab      = document.getElementById("group-tab");
-const contactsList  = document.getElementById("contacts-list");
-const groupPreview  = document.getElementById("group-preview");
-const groupBadge    = document.getElementById("group-badge");
-const backBtn       = document.getElementById("back-btn");
-const chatHeaderAvatar = document.getElementById("chat-header-avatar");
-const chatHeaderName   = document.getElementById("chat-header-name");
-const chatHeaderSub    = document.getElementById("chat-header-sub");
-const statusBanner  = document.getElementById("status-banner");
-const messagesEl    = document.getElementById("messages");
-const newMsgPopup   = document.getElementById("new-messages-popup");
-const form          = document.getElementById("form");
-const input         = document.getElementById("input");
-const welcomeToast  = document.getElementById("welcome-toast");
+const sidebarAvatar  = document.getElementById("sidebar-avatar");
+const sidebarMyName  = document.getElementById("sidebar-my-name");
+const sidebarMyUser  = document.getElementById("sidebar-my-user");
+const groupTab       = document.getElementById("group-tab");
+const contactsList   = document.getElementById("contacts-list");
+const groupPreview   = document.getElementById("group-preview");
+const groupBadge     = document.getElementById("group-badge");
+const backBtn        = document.getElementById("back-btn");
+const chatHeaderAv   = document.getElementById("chat-header-avatar");
+const chatHeaderName = document.getElementById("chat-header-name");
+const chatHeaderSub  = document.getElementById("chat-header-sub");
+const statusBanner   = document.getElementById("status-banner");
+const messagesEl     = document.getElementById("messages");
+const newMsgPopup    = document.getElementById("new-messages-popup");
+const form           = document.getElementById("form");
+const input          = document.getElementById("input");
+const welcomeToast   = document.getElementById("welcome-toast");
 
 // ─────────────────────────────────────────
-// WELCOME TOAST  (replaces the PHP alert() calls)
+// WELCOME TOAST
 // ─────────────────────────────────────────
 function showWelcomeToast(name) {
-  welcomeToast.textContent = `👋 Welcome, ${name}! Feel free to chat.`;
+  welcomeToast.textContent = `👋 Welcome back, ${name}!`;
   welcomeToast.classList.remove("hidden");
   setTimeout(() => welcomeToast.classList.add("hidden"), 3500);
 }
@@ -224,17 +346,20 @@ function setBanner(state) {
 }
 
 // ─────────────────────────────────────────
-// SIDEBAR — open/close on mobile
+// MOBILE PANEL NAVIGATION
 // ─────────────────────────────────────────
+const sidebar   = document.getElementById("sidebar");
+const chatPanel = document.getElementById("chat-panel");
+
 backBtn.addEventListener("click", () => {
   sidebar.classList.remove("hidden-mobile");
-  document.getElementById("chat-panel").classList.add("hidden-mobile");
+  chatPanel.classList.add("hidden-mobile");
   backBtn.classList.add("hidden");
 });
 
 function openConvPanel() {
   sidebar.classList.add("hidden-mobile");
-  document.getElementById("chat-panel").classList.remove("hidden-mobile");
+  chatPanel.classList.remove("hidden-mobile");
   backBtn.classList.remove("hidden");
 }
 
@@ -244,46 +369,32 @@ function openConvPanel() {
 async function switchConv(convId) {
   currentConv = convId;
 
-  // Update active tab in sidebar
   document.querySelectorAll(".contact-item").forEach(el => el.classList.remove("active"));
   const activeEl = convId === "group"
     ? document.getElementById("group-tab")
-    : document.querySelector(`.contact-item[data-conv="${convId}"]`);
+    : document.querySelector(`.contact-item[data-conv="${CSS.escape(convId)}"]`);
   if (activeEl) activeEl.classList.add("active");
 
-  // Clear unread badge for this conv
   unreadMap.set(convId, 0);
   renderBadge(convId);
 
-  // Update header
   if (convId === "group") {
-    chatHeaderAvatar.innerHTML = `<div class="avatar avatar-sm group-avatar-sm">💬</div>`;
+    chatHeaderAv.innerHTML = `<div class="avatar avatar-sm group-avatar-sm">💬</div>`;
     chatHeaderName.textContent = "Group Chat";
     chatHeaderSub.textContent  = `${userList.length} member${userList.length !== 1 ? "s" : ""}`;
   } else {
     const peer = userList.find(u => u.username === convId);
     if (peer) {
-      chatHeaderAvatar.innerHTML = avatarHTML(peer.initials, peer.avatarColor, "sm");
+      chatHeaderAv.innerHTML = avatarHTML(peer.initials, peer.avatarColor, "sm");
       chatHeaderName.textContent = peer.displayName;
       chatHeaderSub.textContent  = peer.online ? "Online" : "Offline";
     }
   }
 
-  // Clear + reload messages
   messagesEl.innerHTML = "";
-
-  if (convId === "group") {
-    // Already have group history; load from DB + re-render
-    const msgs = await dbGetByConv("group");
-    msgs.forEach(msg => renderMessage(msg, false));
-  } else {
-    // Request from server (in case we missed messages while offline)
-    socket.emit("get private history", { with: convId });
-    // Also show any locally-cached messages immediately
-    const msgs = await dbGetByConv(convId);
-    msgs.forEach(msg => renderMessage(msg, false));
-  }
-
+  if (convId !== "group" && socket) socket.emit("get private history", { with: convId });
+  const cached = await dbGetByConv(convId);
+  cached.forEach(msg => renderMessage(msg, false));
   scrollToBottom();
   openConvPanel();
 }
@@ -291,14 +402,14 @@ async function switchConv(convId) {
 groupTab.addEventListener("click", () => switchConv("group"));
 
 // ─────────────────────────────────────────
-// CONTACTS LIST RENDER
+// CONTACTS
 // ─────────────────────────────────────────
 function renderContacts() {
   contactsList.innerHTML = "";
+  const others = userList.filter(u => u.username !== profile.username)
+    .sort((a, b) => (b.online - a.online) || a.displayName.localeCompare(b.displayName));
 
-  const others = userList.filter(u => u.username !== profile.username);
-
-  if (others.length === 0) {
+  if (!others.length) {
     const empty = document.createElement("div");
     empty.className = "contacts-empty";
     empty.textContent = "No other users yet";
@@ -306,30 +417,21 @@ function renderContacts() {
     return;
   }
 
-  // Sort: online first, then alphabetical
-  others.sort((a, b) => {
-    if (a.online !== b.online) return b.online ? 1 : -1;
-    return a.displayName.localeCompare(b.displayName);
-  });
-
   others.forEach(user => {
     const item = document.createElement("div");
     item.className = "contact-item" + (currentConv === user.username ? " active" : "");
     item.dataset.conv = user.username;
-
     const unread = unreadMap.get(user.username) || 0;
-
     item.innerHTML = `
       ${avatarHTML(user.initials, user.avatarColor, "sm")}
       <div class="contact-info">
-        <span class="contact-name">${user.displayName}</span>
+        <span class="contact-name">${escapeHTML(user.displayName)}</span>
         <span class="contact-status ${user.online ? "online" : "offline"}">
           ${user.online ? "● Online" : "○ Offline"}
         </span>
       </div>
-      <span class="contact-badge ${unread ? "" : "hidden"}" data-badge="${user.username}">${unread || ""}</span>
+      <span class="contact-badge ${unread ? "" : "hidden"}" data-badge="${escapeHTML(user.username)}">${unread || ""}</span>
     `;
-
     item.addEventListener("click", () => switchConv(user.username));
     contactsList.appendChild(item);
   });
@@ -341,30 +443,18 @@ function renderBadge(convId) {
     groupBadge.textContent = count || "";
     groupBadge.classList.toggle("hidden", count === 0);
   } else {
-    const el = document.querySelector(`.contact-badge[data-badge="${convId}"]`);
+    const el = document.querySelector(`.contact-badge[data-badge="${CSS.escape(convId)}"]`);
     if (el) { el.textContent = count || ""; el.classList.toggle("hidden", count === 0); }
   }
 }
 
 // ─────────────────────────────────────────
-// NEW MESSAGES POPUP  (from PHP app)
+// NEW MESSAGES POPUP
 // ─────────────────────────────────────────
-function showNewMsgPopup() { newMsgPopup.classList.remove("hidden"); }
-function hideNewMsgPopup() { newMsgPopup.classList.add("hidden"); }
-
-newMsgPopup.addEventListener("click", () => { scrollToBottom(); hideNewMsgPopup(); });
-
-messagesEl.addEventListener("scroll", () => {
-  if (isAtBottom()) hideNewMsgPopup();
-});
-
-function isAtBottom() {
-  return messagesEl.scrollHeight - messagesEl.clientHeight - messagesEl.scrollTop <= 30;
-}
-
-function scrollToBottom(smooth) {
-  messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: smooth ? "smooth" : "auto" });
-}
+newMsgPopup.addEventListener("click", () => { scrollToBottom(true); newMsgPopup.classList.add("hidden"); });
+messagesEl.addEventListener("scroll", () => { if (isAtBottom()) newMsgPopup.classList.add("hidden"); });
+function isAtBottom() { return messagesEl.scrollHeight - messagesEl.clientHeight - messagesEl.scrollTop <= 30; }
+function scrollToBottom(smooth) { messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: smooth ? "smooth" : "auto" }); }
 
 // ─────────────────────────────────────────
 // REPLY STATE
@@ -373,20 +463,14 @@ let replyingTo = null;
 
 function setReply(data) {
   replyingTo = { id: data.id, username: data.username, displayName: data.displayName || data.username, text: data.text };
-
   let bar = document.getElementById("reply-bar");
-  if (!bar) {
-    bar = document.createElement("div");
-    bar.id = "reply-bar";
-    bar.className = "reply-bar";
-    form.parentNode.insertBefore(bar, form);
-  }
+  if (!bar) { bar = document.createElement("div"); bar.id = "reply-bar"; bar.className = "reply-bar"; form.parentNode.insertBefore(bar, form); }
   bar.innerHTML = `
     <div class="reply-bar-content">
       <div class="reply-bar-accent"></div>
       <div class="reply-bar-text">
-        <span class="reply-bar-name">${replyingTo.displayName}</span>
-        <span class="reply-bar-preview">${replyingTo.text.length > 60 ? replyingTo.text.slice(0,60)+"…" : replyingTo.text}</span>
+        <span class="reply-bar-name">${escapeHTML(replyingTo.displayName)}</span>
+        <span class="reply-bar-preview">${escapeHTML(replyingTo.text.length > 60 ? replyingTo.text.slice(0,60)+"…" : replyingTo.text)}</span>
       </div>
     </div>
     <button class="reply-bar-cancel" aria-label="Cancel reply">✕</button>
@@ -395,33 +479,40 @@ function setReply(data) {
   input.focus();
 }
 
-function clearReply() {
-  replyingTo = null;
-  document.getElementById("reply-bar")?.remove();
-}
+function clearReply() { replyingTo = null; document.getElementById("reply-bar")?.remove(); }
 
 // ─────────────────────────────────────────
 // RENDER MESSAGE
 // ─────────────────────────────────────────
+function escapeHTML(str) {
+  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function formatTime(ts) {
+  if (!ts) return "";
+  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderStatus(status) {
+  return status === "seen" || status === "delivered" ? "✔✔" : "✔";
+}
+
 function renderMessage(data, animate = true) {
-  // Avoid duplicates
-  if (document.querySelector(`.message[data-id="${data.id}"]`)) return;
+  if (document.querySelector(`.message[data-id="${CSS.escape(data.id)}"]`)) return;
 
   const isSelf = data.username === profile.username;
-
-  const div = document.createElement("div");
+  const div    = document.createElement("div");
   div.className = `message${isSelf ? " self" : ""}${animate ? " anim" : ""}`;
   div.dataset.id = data.id;
 
   const replyHTML = data.replyTo ? `
     <div class="reply-quote">
-      <span class="reply-quote-name">${data.replyTo.displayName || data.replyTo.username}</span>
-      <span class="reply-quote-text">${(data.replyTo.text||"").length > 60 ? data.replyTo.text.slice(0,60)+"…" : data.replyTo.text}</span>
+      <span class="reply-quote-name">${escapeHTML(data.replyTo.displayName || data.replyTo.username)}</span>
+      <span class="reply-quote-text">${escapeHTML((data.replyTo.text||"").slice(0,80))}</span>
     </div>` : "";
 
-  // Show sender name in group chat for received messages
   const senderLabel = (!isSelf && currentConv === "group")
-    ? `<span class="bubble-sender">${data.displayName || data.username}</span>` : "";
+    ? `<span class="bubble-sender">${escapeHTML(data.displayName || data.username)}</span>` : "";
 
   div.innerHTML = `
     <div class="reply-icon" aria-hidden="true">↩</div>
@@ -436,29 +527,22 @@ function renderMessage(data, animate = true) {
     </div>
   `;
 
-  // Long-press / right-click to delete
+  // Long-press context menu
   let pressTimer;
-  div.addEventListener("touchstart", () => {
-    pressTimer = setTimeout(() => showDeleteMenu(div, data), 600);
-  }, { passive: true });
-  div.addEventListener("touchend", () => clearTimeout(pressTimer), { passive: true });
-  div.addEventListener("touchmove", () => clearTimeout(pressTimer), { passive: true });
-  div.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    showDeleteMenu(div, data);
-  });
+  div.addEventListener("touchstart", () => { pressTimer = setTimeout(() => showCtxMenu(div, data, isSelf), 550); }, { passive: true });
+  div.addEventListener("touchend",   () => clearTimeout(pressTimer), { passive: true });
+  div.addEventListener("touchmove",  () => clearTimeout(pressTimer), { passive: true });
+  div.addEventListener("contextmenu", (e) => { e.preventDefault(); showCtxMenu(div, data, isSelf); });
 
   attachSwipe(div, data);
-
   messagesEl.appendChild(div);
 }
 
-function showDeleteMenu(div, data) {
-  if (document.getElementById("delete-menu")) return;
+function showCtxMenu(div, data, isSelf) {
+  document.getElementById("ctx-menu")?.remove();
   const menu = document.createElement("div");
-  menu.id = "delete-menu";
+  menu.id = "ctx-menu";
   menu.className = "delete-menu";
-  const isSelf = data.username === profile.username;
   menu.innerHTML = `
     <button data-action="reply">↩ Reply</button>
     ${isSelf ? `<button data-action="delete-me">Delete for me</button>` : ""}
@@ -469,7 +553,7 @@ function showDeleteMenu(div, data) {
     const action = e.target.dataset.action;
     if (action === "reply") setReply(data);
     if (action === "delete-me") { removeFromDOM(data.id); dbDelete(data.id); }
-    if (action === "delete-all") {
+    if (action === "delete-all" && socket) {
       socket.emit("delete message", {
         id: data.id, type: "everyone",
         room: currentConv === "group" ? "group" : "private",
@@ -479,38 +563,15 @@ function showDeleteMenu(div, data) {
     menu.remove();
   });
   document.body.appendChild(menu);
-  setTimeout(() => {
-    document.addEventListener("click", () => menu.remove(), { once: true });
-  }, 50);
+  setTimeout(() => document.addEventListener("click", () => menu.remove(), { once: true }), 50);
 }
 
-function escapeHTML(str) {
-  return String(str)
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}
-
-function formatTime(ts) {
-  if (!ts) return "";
-  const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function renderStatus(status) {
-  if (status === "seen") return "✔✔";
-  if (status === "delivered") return "✔✔";
-  return "✔";
-}
-
-function removeFromDOM(id) {
-  document.querySelector(`.message[data-id="${id}"]`)?.remove();
-}
+function removeFromDOM(id) { document.querySelector(`.message[data-id="${CSS.escape(id)}"]`)?.remove(); }
 
 // ─────────────────────────────────────────
 // SWIPE TO REPLY
 // ─────────────────────────────────────────
-const SWIPE_THRESHOLD = 65;
-const SWIPE_MAX = 90;
+const SWIPE_THRESHOLD = 65, SWIPE_MAX = 90;
 
 function attachSwipe(msgEl, data) {
   const inner = msgEl.querySelector(".bubble-inner");
@@ -519,42 +580,31 @@ function attachSwipe(msgEl, data) {
 
   msgEl.addEventListener("touchstart", (e) => {
     if (e.touches.length !== 1) return;
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
     tracking = true; triggered = false;
     inner.style.transition = icon.style.transition = "none";
   }, { passive: true });
 
   msgEl.addEventListener("touchmove", (e) => {
     if (!tracking) return;
-    const dx = e.touches[0].clientX - startX;
-    const dy = e.touches[0].clientY - startY;
+    const dx = e.touches[0].clientX - startX, dy = e.touches[0].clientY - startY;
     if (Math.abs(dy) > Math.abs(dx) && Math.abs(dx) < 10) { tracking = false; return; }
     if (dx < 0) return;
     e.preventDefault();
-
-    let tx = dx > SWIPE_THRESHOLD
-      ? SWIPE_THRESHOLD + (dx - SWIPE_THRESHOLD) * 0.2
-      : dx;
+    let tx = dx > SWIPE_THRESHOLD ? SWIPE_THRESHOLD + (dx - SWIPE_THRESHOLD) * 0.2 : dx;
     tx = Math.min(tx, SWIPE_MAX);
-
     inner.style.transform = `translateX(${tx}px)`;
     const p = Math.min(tx / SWIPE_THRESHOLD, 1);
-    icon.style.opacity = p;
-    icon.style.transform = `scale(${0.6 + 0.4 * p})`;
-
-    if (!triggered && tx >= SWIPE_THRESHOLD) {
-      triggered = true;
-      navigator.vibrate?.(30);
-    }
+    icon.style.opacity = p; icon.style.transform = `scale(${0.6 + 0.4 * p})`;
+    if (!triggered && tx >= SWIPE_THRESHOLD) { triggered = true; navigator.vibrate?.(30); }
   }, { passive: false });
 
   msgEl.addEventListener("touchend", () => {
     if (!tracking) return;
     tracking = false;
-    const spring = "0.35s cubic-bezier(0.34, 1.56, 0.64, 1)";
-    inner.style.transition = `transform ${spring}`;
-    icon.style.transition  = `opacity 0.25s ease, transform ${spring}`;
+    const sp = "0.35s cubic-bezier(0.34,1.56,0.64,1)";
+    inner.style.transition = `transform ${sp}`;
+    icon.style.transition  = `opacity 0.25s ease, transform ${sp}`;
     inner.style.transform  = "translateX(0)";
     icon.style.opacity     = "0";
     icon.style.transform   = "scale(0.6)";
@@ -568,16 +618,15 @@ function attachSwipe(msgEl, data) {
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const text = input.value.trim();
-  if (!text) return;
+  if (!text || !socket) return;
   input.value = "";
 
-  const id = crypto.randomUUID();
-  const convId = currentConv;
-  const isGroup = convId === "group";
+  const convId   = currentConv;
+  const isGroup  = convId === "group";
+  const id       = crypto.randomUUID();
 
   const wirePayload = {
-    id,
-    text,
+    id, text,
     username: profile.username,
     displayName: profile.displayName,
     sender: socket.id,
@@ -591,7 +640,6 @@ form.addEventListener("submit", async (e) => {
 
   clearReply();
   socket.emit("typing", { room: isGroup ? "group" : "private", to: convId, status: false });
-
   renderMessage({ ...localRecord, self: true });
   await dbPut(localRecord);
   scrollToBottom();
@@ -608,22 +656,11 @@ const typingUsers = new Map();
 let typingTimer;
 
 input.addEventListener("input", () => {
+  if (!socket) return;
   const isGroup = currentConv === "group";
   socket.emit("typing", { room: isGroup ? "group" : "private", to: currentConv, status: true });
   clearTimeout(typingTimer);
-  typingTimer = setTimeout(() => {
-    socket.emit("typing", { room: isGroup ? "group" : "private", to: currentConv, status: false });
-  }, 1500);
-});
-
-socket.on("typing", (data) => {
-  if (data.username === profile.username) return;
-  const relevantGroup = data.room === "group" && currentConv === "group";
-  const relevantDM = data.room === "private" && data.from === currentConv;
-  if (!relevantGroup && !relevantDM) return;
-
-  const who = data.username || data.from;
-  data.status ? showTyping(who) : removeTyping(who);
+  typingTimer = setTimeout(() => socket.emit("typing", { room: isGroup ? "group" : "private", to: currentConv, status: false }), 1500);
 });
 
 function showTyping(who) {
@@ -637,144 +674,114 @@ function showTyping(who) {
   scrollToBottom(true);
 }
 
-function removeTyping(who) {
-  typingUsers.get(who)?.remove();
-  typingUsers.delete(who);
-}
+function removeTyping(who) { typingUsers.get(who)?.remove(); typingUsers.delete(who); }
 
 // ─────────────────────────────────────────
 // SOCKET EVENT HANDLERS
 // ─────────────────────────────────────────
-socket.on("connect", () => {
-  setBanner("online");
-  if (profile) {
-    socket.emit("register", {
-      username: profile.username,
-      displayName: profile.displayName,
-      avatarColor: profile.avatarColor,
-      initials: profile.initials
-    });
-  }
-  flushPending();
-});
+function wireSocketEvents() {
+  socket.on("connect", () => {
+    setBanner("online");
+    flushPending();
+  });
+  socket.on("disconnect",        () => setBanner("offline"));
+  socket.io.on("reconnect_attempt", () => setBanner("reconnecting"));
 
-socket.on("disconnect", () => setBanner("offline"));
-socket.io.on("reconnect_attempt", () => setBanner("reconnecting"));
+  // Server forced logout (account deleted from another device)
+  socket.on("account-deleted", () => {
+    clearToken(); profile = null;
+    alert("Your account has been deleted.");
+    location.reload();
+  });
 
-socket.on("registered", () => {
-  // Server confirmed our registration — nothing extra to do
-});
+  socket.on("typing", (data) => {
+    if (data.username === profile.username) return;
+    const relGroup = data.room === "group" && currentConv === "group";
+    const relDM    = data.room === "private" && data.from === currentConv;
+    if (!relGroup && !relDM) return;
+    const who = data.username || data.from;
+    data.status ? showTyping(who) : removeTyping(who);
+  });
 
-// Group messages
-socket.on("group message", async (msg) => {
-  removeTyping(msg.username);
-  if (document.querySelector(`.message[data-id="${msg.id}"]`)) return;
-
-  const record = { ...msg, convId: "group", synced: true };
-  await dbPut(record);
-
-  if (currentConv === "group") {
-    const wasBottom = isAtBottom();
-    renderMessage(msg);
-    if (wasBottom) scrollToBottom(true);
-    else showNewMsgPopup();
-    // mark seen
-    if (msg.username !== profile.username) {
-      socket.emit("seen", { id: msg.id, to: msg.username });
+  socket.on("group message", async (msg) => {
+    removeTyping(msg.username);
+    if (document.querySelector(`.message[data-id="${CSS.escape(msg.id)}"]`)) return;
+    await dbPut({ ...msg, convId: "group", synced: true });
+    if (currentConv === "group") {
+      const wasBottom = isAtBottom();
+      renderMessage(msg);
+      if (wasBottom) scrollToBottom(true); else newMsgPopup.classList.remove("hidden");
+      if (msg.username !== profile.username) socket.emit("seen", { id: msg.id, to: msg.username });
+    } else {
+      unreadMap.set("group", (unreadMap.get("group") || 0) + 1);
+      renderBadge("group");
+      groupPreview.textContent = msg.text.slice(0, 30) + (msg.text.length > 30 ? "…" : "");
     }
-  } else {
-    // Unread badge
-    const prev = unreadMap.get("group") || 0;
-    unreadMap.set("group", prev + 1);
-    renderBadge("group");
-    groupPreview.textContent = msg.text.length > 30 ? msg.text.slice(0,30)+"…" : msg.text;
-  }
-});
+  });
 
-// Private messages
-socket.on("private message", async (msg) => {
-  if (document.querySelector(`.message[data-id="${msg.id}"]`)) return;
-
-  const peer = msg.from === profile.username ? msg.to : msg.from;
-  const record = { ...msg, convId: peer, synced: true };
-  await dbPut(record);
-
-  if (currentConv === peer) {
-    const wasBottom = isAtBottom();
-    renderMessage(msg);
-    if (wasBottom) scrollToBottom(true);
-    else showNewMsgPopup();
-    if (msg.from !== profile.username) {
-      socket.emit("seen", { id: msg.id, to: msg.from });
+  socket.on("private message", async (msg) => {
+    if (document.querySelector(`.message[data-id="${CSS.escape(msg.id)}"]`)) return;
+    const peer = msg.from === profile.username ? msg.to : msg.from;
+    await dbPut({ ...msg, convId: peer, synced: true });
+    if (currentConv === peer) {
+      const wasBottom = isAtBottom();
+      renderMessage(msg);
+      if (wasBottom) scrollToBottom(true); else newMsgPopup.classList.remove("hidden");
+      if (msg.from !== profile.username) socket.emit("seen", { id: msg.id, to: msg.from });
+    } else {
+      unreadMap.set(peer, (unreadMap.get(peer) || 0) + 1);
+      renderBadge(peer);
     }
-  } else {
-    const prev = unreadMap.get(peer) || 0;
-    unreadMap.set(peer, prev + 1);
-    renderBadge(peer);
-  }
-});
+  });
 
-// Private history (sent by server when we request it)
-socket.on("private history", async ({ peer, messages: msgs }) => {
-  if (!Array.isArray(msgs)) return;
-  for (const msg of msgs) {
-    const record = { ...msg, convId: peer, synced: true };
-    await dbPut(record);
-    if (currentConv === peer && !document.querySelector(`.message[data-id="${msg.id}"]`)) {
-      renderMessage(msg, false);
+  socket.on("private history", async ({ peer, messages: msgs }) => {
+    if (!Array.isArray(msgs)) return;
+    for (const msg of msgs) {
+      await dbPut({ ...msg, convId: peer, synced: true });
+      if (currentConv === peer && !document.querySelector(`.message[data-id="${CSS.escape(msg.id)}"]`))
+        renderMessage(msg, false);
     }
-  }
-  if (currentConv === peer) scrollToBottom();
-});
+    if (currentConv === peer) scrollToBottom();
+  });
 
-// Group history (sent on connect)
-socket.on("group history", async (msgs) => {
-  if (!Array.isArray(msgs)) return;
-  for (const msg of msgs) {
-    const record = { ...msg, convId: "group", synced: true };
-    await dbPut(record);
-    if (currentConv === "group" && !document.querySelector(`.message[data-id="${msg.id}"]`)) {
-      renderMessage(msg, false);
+  socket.on("group history", async (msgs) => {
+    if (!Array.isArray(msgs)) return;
+    for (const msg of msgs) {
+      await dbPut({ ...msg, convId: "group", synced: true });
+      if (currentConv === "group" && !document.querySelector(`.message[data-id="${CSS.escape(msg.id)}"]`))
+        renderMessage(msg, false);
     }
-  }
-  if (currentConv === "group") scrollToBottom();
-});
+    if (currentConv === "group") scrollToBottom();
+  });
 
-// Message status (delivered / seen)
-socket.on("message-status", ({ id, status }) => {
-  const el = document.querySelector(`.message[data-id="${id}"] .bubble-status`);
-  if (el) el.textContent = renderStatus(status);
-  dbUpdateStatus(id, status);
-});
+  socket.on("message-status", ({ id, status }) => {
+    const el = document.querySelector(`.message[data-id="${CSS.escape(id)}"] .bubble-status`);
+    if (el) el.textContent = renderStatus(status);
+    dbUpdateStatus(id, status);
+  });
 
-// Delete message
-socket.on("delete message", ({ id }) => {
-  removeFromDOM(id);
-  dbDelete(id);
-});
+  socket.on("delete message", ({ id }) => { removeFromDOM(id); dbDelete(id); });
 
-// User list
-socket.on("user-list", (list) => {
-  userList = list;
-  renderContacts();
-  // Update chat header sub if in a DM
-  if (currentConv !== "group") {
-    const peer = userList.find(u => u.username === currentConv);
-    if (peer) chatHeaderSub.textContent = peer.online ? "Online" : "Offline";
-  } else {
-    chatHeaderSub.textContent = `${list.length} member${list.length !== 1 ? "s" : ""}`;
-  }
-});
+  socket.on("user-list", (list) => {
+    userList = list;
+    renderContacts();
+    if (currentConv !== "group") {
+      const peer = userList.find(u => u.username === currentConv);
+      if (peer) chatHeaderSub.textContent = peer.online ? "Online" : "Offline";
+    } else {
+      chatHeaderSub.textContent = `${list.length} member${list.length !== 1 ? "s" : ""}`;
+    }
+  });
+}
 
 // ─────────────────────────────────────────
-// OFFLINE → ONLINE SYNC
+// OFFLINE → ONLINE FLUSH
 // ─────────────────────────────────────────
 const inFlight = new Set();
 
 async function flushPending() {
-  if (!socket.connected) return;
-  const pending = await dbGetAllPending();
-  pending.sort((a, b) => a.timestamp - b.timestamp);
+  if (!socket?.connected) return;
+  const pending = (await dbGetAllPending()).sort((a, b) => a.timestamp - b.timestamp);
   for (const msg of pending) {
     if (inFlight.has(msg.id)) continue;
     inFlight.add(msg.id);
@@ -782,8 +789,7 @@ async function flushPending() {
     socket.emit(isGroup ? "group message" : "private message", {
       id: msg.id, text: msg.text,
       username: msg.username, displayName: msg.displayName,
-      sender: socket.id, timestamp: msg.timestamp,
-      convId: msg.convId,
+      sender: socket.id, timestamp: msg.timestamp, convId: msg.convId,
       ...(isGroup ? {} : { to: msg.convId, from: msg.username }),
       ...(msg.replyTo ? { replyTo: msg.replyTo } : {})
     });
@@ -792,46 +798,52 @@ async function flushPending() {
 }
 
 // ─────────────────────────────────────────
-// BOOT
+// BOOT — called after successful auth
 // ─────────────────────────────────────────
 async function boot() {
-  // Show app shell
   appShell.classList.remove("hidden");
 
-  // Populate my avatar in sidebar
+  // Populate sidebar header
   sidebarAvatar.innerHTML = avatarHTML(profile.initials, profile.avatarColor, "sm");
   sidebarMyName.textContent = profile.displayName;
+  sidebarMyUser.textContent = "@" + profile.username;
 
-  // Open DB
+  // Open DB & render cached messages
   db = await openDB();
-
-  // Load group messages from DB
-  const groupMsgs = await dbGetByConv("group");
-  groupMsgs.forEach(msg => renderMessage(msg, false));
+  const cached = await dbGetByConv("group");
+  cached.forEach(msg => renderMessage(msg, false));
   scrollToBottom();
 
-  // Register with server
-  if (socket.connected) {
-    socket.emit("register", {
-      username: profile.username,
-      displayName: profile.displayName,
-      avatarColor: profile.avatarColor,
-      initials: profile.initials
-    });
-    flushPending();
-  }
+  // Connect socket with token
+  socket = io({ auth: { token: getToken() }, reconnection: true, reconnectionDelayMax: 10000 });
+  wireSocketEvents();
 
-  // Welcome toast (replaces the two alert() calls in the PHP app)
   showWelcomeToast(profile.displayName);
 }
 
 // ─────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────
-loadProfile();
-if (profile) {
-  profileModal.classList.add("hidden");
-  boot();
-} else {
-  profileModal.classList.remove("hidden");
-}
+(async function init() {
+  const token = getToken();
+  if (!token) return; // show auth screen (already visible by default)
+
+  // Try to validate the token silently (just decode locally — server
+  // will reject the socket handshake if it's expired)
+  try {
+    const parts   = token.split(".");
+    const payload = JSON.parse(atob(parts[1]));
+    if (payload.exp && payload.exp * 1000 < Date.now()) throw new Error("expired");
+    profile = {
+      username:    payload.username,
+      displayName: payload.displayName,
+      initials:    payload.initials,
+      avatarColor: payload.avatarColor
+    };
+    authScreen.classList.add("hidden");
+    boot();
+  } catch (_) {
+    clearToken();
+    // Show auth screen
+  }
+})();
