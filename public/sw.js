@@ -1,4 +1,4 @@
-const CACHE_NAME = "yakuwaz-chat-cache-v4";
+const CACHE_NAME = "yakuwaz-chat-cache-v5";
 const urlsToCache = [
   "/",
   "/index.html",
