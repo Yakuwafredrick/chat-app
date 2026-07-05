@@ -1,29 +1,15 @@
 /* ═══════════════════════════════════════
-   RESET & BASE
+   AUTH SCREEN
 ═══════════════════════════════════════ */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-html, body {
-  user-select: none;
-  height: 100%;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #0f172a;
-  color: #e2e8f0;
-  overflow: hidden;
-}
-
-/* ═══════════════════════════════════════
-   PROFILE MODAL
-═══════════════════════════════════════ */
-.profile-modal {
+.auth-screen {
   position: fixed; inset: 0; z-index: 999;
-  background: rgba(2,6,23,0.95);
+  background: #0f172a;
   display: flex; align-items: center; justify-content: center;
   padding: 20px;
 }
-.profile-modal.hidden { display: none; }
+.auth-screen.hidden { display: none; }
 
-.profile-modal-card {
+.auth-card {
   background: #1e293b;
   border-radius: 20px;
   padding: 32px 28px;
@@ -32,37 +18,124 @@ html, body {
   box-shadow: 0 20px 60px rgba(0,0,0,0.5);
 }
 
-.profile-modal-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 6px; }
-.profile-modal-sub { font-size: 0.85rem; color: #94a3b8; margin-bottom: 24px; }
+.auth-logo { font-size: 2.4rem; margin-bottom: 6px; }
+.auth-title { font-size: 1.4rem; font-weight: 700; margin-bottom: 20px; }
 
-.avatar-preview-wrap { display: flex; justify-content: center; margin-bottom: 20px; }
-.avatar-lg {
-  width: 72px; height: 72px; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 1.6rem; font-weight: 700; color: #fff;
-  background: #334155;
+.auth-tabs {
+  display: flex; border-radius: 10px;
+  background: #0f172a; padding: 4px;
+  margin-bottom: 20px; gap: 4px;
 }
+.auth-tab {
+  flex: 1; padding: 8px;
+  border: none; border-radius: 8px;
+  background: transparent; color: #94a3b8;
+  font-size: 0.88rem; font-weight: 600; cursor: pointer;
+  transition: all 0.15s;
+}
+.auth-tab.active { background: #1e293b; color: #e2e8f0; }
 
-.profile-fields { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
-.profile-field-input {
+.auth-form { display: flex; flex-direction: column; gap: 10px; }
+.auth-form.hidden { display: none; }
+
+.auth-name-row { display: flex; gap: 8px; }
+.auth-name-row .auth-input { flex: 1; min-width: 0; }
+
+.auth-input {
   padding: 11px 14px; border-radius: 10px;
   border: 1px solid #334155; background: #0f172a;
-  color: #e2e8f0; font-size: 0.95rem; outline: none;
-  transition: border-color 0.15s;
+  color: #e2e8f0; font-size: 0.9rem; outline: none;
+  transition: border-color 0.15s; width: 100%;
 }
-.profile-field-input:focus { border-color: #3b82f6; }
-.profile-field-input::placeholder { color: #475569; }
+.auth-input:focus { border-color: #3b82f6; }
+.auth-input::placeholder { color: #475569; }
 
-.profile-save-btn {
+.auth-pw-wrap { position: relative; }
+.auth-pw-wrap .auth-input { padding-right: 42px; }
+.pw-toggle {
+  position: absolute; right: 10px; top: 50%;
+  transform: translateY(-50%);
+  background: none; border: none; cursor: pointer;
+  font-size: 1rem; padding: 2px;
+}
+
+.signup-avatar-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 6px 0; text-align: left;
+}
+.signup-avatar-hint { font-size: 0.75rem; color: #64748b; }
+
+.auth-btn {
   width: 100%; padding: 13px; border-radius: 12px;
   border: none; background: #3b82f6; color: #fff;
   font-size: 1rem; font-weight: 600; cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s; margin-top: 4px;
 }
-.profile-save-btn:active { background: #2563eb; }
+.auth-btn:disabled { background: #1d4ed8; opacity: 0.7; cursor: not-allowed; }
+.auth-btn:not(:disabled):active { background: #2563eb; }
 
-.profile-error { font-size: 0.8rem; color: #f87171; margin-top: 10px; }
-.profile-error.hidden { display: none; }
+.auth-error {
+  font-size: 0.8rem; color: #f87171;
+  background: rgba(248,113,113,0.1);
+  border-radius: 8px; padding: 8px 10px;
+  text-align: left;
+}
+.auth-error.hidden { display: none; }
+
+/* ═══════════════════════════════════════
+   SIDEBAR ACCOUNT MENU
+═══════════════════════════════════════ */
+.sidebar-header-info {
+  flex: 1; overflow: hidden;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.sidebar-my-user {
+  font-size: 0.7rem; color: #64748b;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sidebar-menu-btn {
+  background: transparent; border: none; color: #94a3b8;
+  font-size: 1.3rem; cursor: pointer; padding: 4px 6px;
+  border-radius: 6px; flex-shrink: 0; line-height: 1;
+}
+.sidebar-menu-btn:active { background: #1e293b; }
+
+.account-menu {
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  animation: slideUp 0.15s ease;
+}
+.account-menu.hidden { display: none; }
+.account-menu button {
+  display: block; width: 100%;
+  padding: 13px 16px; text-align: left;
+  background: transparent; border: none;
+  border-bottom: 1px solid #334155;
+  color: #e2e8f0; font-size: 0.88rem; cursor: pointer;
+}
+.account-menu button:last-child { border-bottom: none; }
+.account-menu button.danger { color: #f87171; }
+.account-menu button:active { background: #334155; }
+
+/* ═══════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+  overflow: hidden;
+}
+
+.avatar-lg {
+  width: 60px; height: 60px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem; font-weight: 700; color: #fff;
+  background: #334155; flex-shrink: 0;
+}
 
 /* ═══════════════════════════════════════
    APP SHELL — two-panel layout
