@@ -10,37 +10,73 @@
 </head>
 <body>
 
-  <!-- ══════════ PROFILE SETUP MODAL ══════════ -->
-  <div id="profile-modal" class="profile-modal">
-    <div class="profile-modal-card">
-      <h2 class="profile-modal-title">Welcome to YakuwaZ 👋</h2>
-      <p class="profile-modal-sub">Set up your profile to start chatting</p>
+  <!-- ══════════ AUTH SCREEN ══════════ -->
+  <div id="auth-screen" class="auth-screen">
+    <div class="auth-card">
+      <div class="auth-logo">💬</div>
+      <h1 class="auth-title">YakuwaZ Chat</h1>
 
-      <div class="avatar-preview-wrap">
-        <div class="avatar-lg" id="modal-avatar"><span id="modal-initials">?</span></div>
+      <!-- Tabs -->
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">Log In</button>
+        <button class="auth-tab" data-tab="signup">Sign Up</button>
       </div>
 
-      <div class="profile-fields">
-        <input id="fname-input" class="profile-field-input" type="text" placeholder="First name" maxlength="20" autocomplete="given-name" />
-        <input id="lname-input" class="profile-field-input" type="text" placeholder="Last name (optional)" maxlength="20" autocomplete="family-name" />
+      <!-- Log In form -->
+      <div id="login-form" class="auth-form">
+        <input id="login-username" class="auth-input" type="text" placeholder="Username" autocomplete="username" autocapitalize="none" />
+        <div class="auth-pw-wrap">
+          <input id="login-password" class="auth-input" type="password" placeholder="Password" autocomplete="current-password" />
+          <button type="button" class="pw-toggle" data-target="login-password">👁</button>
+        </div>
+        <button id="login-btn" class="auth-btn">Log In</button>
+        <p id="login-error" class="auth-error hidden"></p>
       </div>
 
-      <button id="profile-save-btn" class="profile-save-btn">Start Chatting →</button>
-      <p id="profile-error" class="profile-error">Please enter at least a first name.</p>
+      <!-- Sign Up form -->
+      <div id="signup-form" class="auth-form hidden">
+        <div class="auth-name-row">
+          <input id="signup-fname" class="auth-input" type="text" placeholder="First name" maxlength="20" autocomplete="given-name" />
+          <input id="signup-lname" class="auth-input" type="text" placeholder="Last name" maxlength="20" autocomplete="family-name" />
+        </div>
+        <input id="signup-username" class="auth-input" type="text" placeholder="Username (min 3 chars)" autocomplete="username" autocapitalize="none" />
+        <div class="auth-pw-wrap">
+          <input id="signup-password" class="auth-input" type="password" placeholder="Password (min 6 chars)" autocomplete="new-password" />
+          <button type="button" class="pw-toggle" data-target="signup-password">👁</button>
+        </div>
+        <!-- Avatar preview -->
+        <div class="signup-avatar-row">
+          <div class="avatar-lg" id="signup-avatar-preview"><span id="signup-initials-preview">?</span></div>
+          <span class="signup-avatar-hint">Your avatar is auto-generated from your name</span>
+        </div>
+        <button id="signup-btn" class="auth-btn">Create Account</button>
+        <p id="signup-error" class="auth-error hidden"></p>
+      </div>
+
     </div>
   </div>
 
   <!-- ══════════ MAIN APP SHELL ══════════ -->
   <div class="app-shell hidden" id="app-shell">
 
-    <!-- ── SIDEBAR (contacts + group) ── -->
+    <!-- ── SIDEBAR ── -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <div class="sidebar-avatar" id="sidebar-avatar"></div>
-        <span class="sidebar-my-name" id="sidebar-my-name"></span>
+        <div id="sidebar-avatar"></div>
+        <div class="sidebar-header-info">
+          <span class="sidebar-my-name" id="sidebar-my-name"></span>
+          <span class="sidebar-my-user" id="sidebar-my-user"></span>
+        </div>
+        <button class="sidebar-menu-btn" id="sidebar-menu-btn" title="Account options">⋮</button>
       </div>
 
-      <!-- Group chat entry -->
+      <!-- Account dropdown -->
+      <div class="account-menu hidden" id="account-menu">
+        <button id="logout-btn">🚪 Log Out</button>
+        <button id="delete-account-btn" class="danger">🗑 Delete Account</button>
+      </div>
+
+      <!-- Group tab -->
       <div class="contact-item active" id="group-tab" data-conv="group">
         <div class="contact-avatar group-avatar">💬</div>
         <div class="contact-info">
@@ -51,16 +87,11 @@
       </div>
 
       <div class="sidebar-divider">Direct Messages</div>
-
-      <div class="contacts-list" id="contacts-list">
-        <!-- filled by JS -->
-      </div>
+      <div class="contacts-list" id="contacts-list"></div>
     </aside>
 
     <!-- ── CHAT PANEL ── -->
     <div class="chat-panel" id="chat-panel">
-
-      <!-- Chat header -->
       <div class="chat-header" id="chat-header">
         <button class="back-btn hidden" id="back-btn">&#8592;</button>
         <div class="chat-header-avatar" id="chat-header-avatar"></div>
@@ -71,36 +102,22 @@
       </div>
 
       <div class="status-banner hidden" id="status-banner"></div>
-
-      <!-- Messages -->
       <div class="messages" id="messages"></div>
+      <div class="new-messages-popup hidden" id="new-messages-popup">New messages <span>↓</span></div>
 
-      <!-- New messages popup pill -->
-      <div class="new-messages-popup hidden" id="new-messages-popup">
-        New messages <span>↓</span>
-      </div>
-
-      <!-- Reply preview bar -->
-      <!-- inserted by JS above the input when replying -->
-
-      <!-- Input -->
       <form id="form" class="chat-input">
         <input id="input" placeholder="Type a message…" autocomplete="off" />
         <button type="submit">Send</button>
       </form>
-
     </div>
   </div>
 
-  <!-- Welcome toast -->
   <div id="welcome-toast" class="welcome-toast hidden"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/sw.js").catch(() => {});
-      });
+      window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
     }
   </script>
   <script src="app.js"></script>
